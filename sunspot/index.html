@@ -42,6 +42,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;color:#fff;
 #rail button svg{width:26px;height:26px}
 #rail button.on{background:var(--gold);color:#000;border-color:var(--gold)}
 #rail .grow{flex:1}
+@media (max-height:440px){#rail{gap:5px;padding-top:calc(6px + var(--st));padding-bottom:calc(6px + var(--sb))}#rail button{width:44px;height:44px}#rail button svg{width:23px;height:23px}}
 #jamBtn{color:var(--red)!important;border-color:var(--red)!important}
 #jamBtn.rec{background:var(--red)!important;color:#000!important;animation:pulse 1s infinite}
 @keyframes pulse{50%{box-shadow:0 0 0 6px rgba(225,0,50,.35)}}
@@ -87,6 +88,19 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 #wave{width:100%;height:70px;border:2px solid #4a1a00;border-radius:10px;background:#000;display:block;margin-top:6px}
 #info{font-size:12px;color:var(--gold);letter-spacing:.06em;margin-top:6px;text-transform:uppercase}
 
+#saveName{width:100%;font:inherit;font-size:16px;font-weight:700;color:#fff;background:#000;border:2px solid var(--gold);border-radius:10px;padding:10px 12px;
+  -webkit-user-select:text;user-select:text;outline:none}
+#saveName::placeholder{color:#a8662e}
+#saveList{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+.sv{border:2px solid #5a2200;border-radius:12px;padding:9px 10px;background:linear-gradient(90deg,#1a0500,#000)}
+.sv .nm{font-size:14px;color:var(--gold);letter-spacing:.04em;word-break:break-word}
+.sv .mt{font-size:11px;font-weight:700;color:#ff9a5c;margin:2px 0 7px;letter-spacing:.04em}
+.sv .bt{display:flex;gap:6px}
+.sv .bt button{font:inherit;font-size:11px;letter-spacing:.06em;text-transform:uppercase;border:2px solid var(--gold);background:#000;color:var(--gold);border-radius:9px;padding:7px 6px;min-height:34px;flex:1;cursor:pointer}
+.sv .bt button.ld{background:var(--gold);color:#000}
+.sv .bt button.del{flex:0 0 44px;border-color:var(--red);color:var(--red)}
+.sv .bt button.del.sure{flex:0 0 74px;background:var(--red);color:#000}
+.empty{font-size:12px;font-weight:700;color:#a8662e;letter-spacing:.04em}
 #toast{position:fixed;left:50%;bottom:calc(18px + var(--sb));transform:translateX(-50%) translateY(140%);background:var(--gold);color:#000;
   padding:11px 16px;border-radius:12px;font-size:13px;letter-spacing:.04em;z-index:9;transition:transform .25s;max-width:86vw;text-align:center}
 #toast.show{transform:translateX(-50%)}
@@ -116,6 +130,9 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   <button data-tab="space" title="Space">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3" fill="currentColor"/><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="10" stroke-dasharray="2.5 2.5"/></svg>
   </button>
+  <button data-tab="saves" title="Saves">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></svg>
+  </button>
   <div class="grow"></div>
   <button id="jamBtn" title="Record your jam">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="5" fill="currentColor"/></svg>
@@ -124,21 +141,21 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 
 <section id="panel">
   <div class="pane" data-pane="rec">
-    <h2>Voice<small>Talk, sing or rap. Up to 12 seconds.</small></h2>
+    <h2>Voice<small>Talk, sing or rap. Up to 30 seconds.</small></h2>
     <div id="recWrap">
       <button id="recBtn" aria-label="Record">
         <svg viewBox="0 0 96 96"><circle cx="48" cy="48" r="44" fill="none" stroke="#3a1200" stroke-width="6"/><circle id="recRing" cx="48" cy="48" r="44" fill="none" stroke="#FFB300" stroke-width="6" stroke-dasharray="276.5" stroke-dashoffset="276.5" stroke-linecap="round"/></svg>
         <div id="recDot"></div>
       </button>
-      <div id="recTxt"><b id="recTime">12.0</b>tap to record</div>
+      <div id="recTxt"><b id="recTime">30.0</b>tap to record</div>
     </div>
     <canvas id="wave"></canvas>
     <div id="info">No voice yet</div>
     <label class="sl"><span>Chop sensitivity <b data-v="sens"></b></span><input type="range" data-k="sens" min="0" max="1" step="0.01">
       <div class="ends"><i>fewer chops</i><i>more chops</i></div></label>
     <label class="sl"><span>Longest chop <b data-v="maxLen"></b></span><input type="range" data-k="maxLen" min="0.08" max="0.7" step="0.01"></label>
-    <div class="row"><button class="btn" id="demoBtn">Demo voice</button><button class="btn" id="loadBtn">Load audio</button></div>
-    <input type="file" id="fileIn" accept="audio/*" hidden>
+    <div class="row"><button class="btn" id="demoBtn">Demo voice</button><button class="btn hot" id="loadBtn">Upload your own</button></div>
+    <input type="file" id="fileIn" accept="audio/*,video/*,.m4a,.mp3,.wav,.aac,.aif,.aiff,.caf,.ogg,.flac" hidden>
     <div class="note">Your voice is cut at every hit and syllable. Each chop becomes a dot. Left to right is time, low to high is pitch.</div>
   </div>
 
@@ -187,6 +204,15 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
     <label class="sl"><span>Volume <b data-v="vol"></b></span><input type="range" data-k="vol" min="0" max="1" step="0.01"></label>
     <div class="note">The red button at the bottom of the rail records your jam so you can share it.<br>No sound? Check the volume and that the phone isn't on silent.</div>
   </div>
+
+  <div class="pane" data-pane="saves">
+    <h2>Saves<small>Keep a voice with all its knob settings.</small></h2>
+    <input type="text" id="saveName" maxlength="40" placeholder="Name this save" autocomplete="off">
+    <div class="row"><button class="btn hot" id="saveBtn">Save voice + settings</button></div>
+    <div id="saveList"></div>
+    <div class="row"><button class="btn" id="resetBtn">Turn all effects off</button></div>
+    <div class="note"><b style="color:var(--gold)">Load</b> brings back the voice and every setting.<br><b style="color:var(--gold)">Settings</b> keeps the voice you have now and only copies the knobs.<br>Saves stay on this phone in this browser.</div>
+  </div>
 </section>
 
 <div id="toast"></div>
@@ -213,11 +239,11 @@ const PAL = ['#FFB300','#FF5A00','#E10032','#FF1F9E','#7A00FF'];
 
 /* ---------------- settings ---------------- */
 const DEF = {sens:.55, maxLen:.25, bpm:92, div:4, pattern:'up', notes:4, gate:.6, hold:false,
-  tone:.35, snap:true, key:9, scale:'minPent', mix:.25, wave:'glass', oct:0, cutoff:.55, echo:.25, verb:.3, vol:.85};
+  tone:0, snap:false, key:9, scale:'minPent', mix:0, wave:'glass', oct:0, cutoff:.55, echo:0, verb:0, vol:.85};
 const S = Object.assign({}, DEF);
-try { Object.assign(S, JSON.parse(localStorage.getItem('sunspot-settings') || '{}')); } catch (e) {}
+try { Object.assign(S, JSON.parse(localStorage.getItem('sunspot-settings-v2') || '{}')); } catch (e) {}
 S.hold = false;
-const saveSettings = () => { try { localStorage.setItem('sunspot-settings', JSON.stringify(S)); } catch (e) {} };
+const saveSettings = () => { try { localStorage.setItem('sunspot-settings-v2', JSON.stringify(S)); } catch (e) {} };
 
 /* ---------------- audio graph ---------------- */
 let ctx, master, comp, analyser, voiceBus, echoSend, verbSend, delay, fb, delayLP, verb, fbins;
@@ -266,7 +292,7 @@ function unlock() {
 
 /* ---------------- sample + analysis ---------------- */
 let sample = null, sampleBuf = null, dots = [];
-function setSample(data, sr, save) {
+function setSample(data, sr, save, autoKey) {
   initAudio();
   // peak normalise
   let pk = 0; for (let i = 0; i < data.length; i++) { const a = Math.abs(data[i]); if (a > pk) pk = a; }
@@ -274,14 +300,15 @@ function setSample(data, sr, save) {
   sample = {data, sr};
   sampleBuf = ctx.createBuffer(1, data.length, sr);
   if (sampleBuf.copyToChannel) sampleBuf.copyToChannel(data, 0); else sampleBuf.getChannelData(0).set(data);
-  runAnalysis();
+  runAnalysis(autoKey !== false);
   if (save) idbPut({data, sr});
 }
 function runAnalysis(autoKey) {
+  autoKey = autoKey === true;
   if (!sample) return;
   dots = analyze(sample.data, sample.sr);
   layoutDots();
-  if (autoKey !== false && dots.some(d => d.pitched)) findKey(true);
+  if (autoKey && dots.some(d => d.pitched)) findKey(true);
   assignNotes();
   updateSet();
   drawWave();
@@ -340,7 +367,7 @@ function analyze(x, sr) {
     const p = pitchOf(x2, Math.floor(s / 2), Math.floor(e / 2), sr2);
     ds.push({start: s / sr, len: len / sr, rms, zcr: zc / len, pitched: !!p, midi: p ? p.midi : null, conf: p ? p.conf : 0});
   }
-  if (ds.length > 72) { ds.sort((a, b) => b.rms - a.rms); ds = ds.slice(0, 72); }
+  if (ds.length > 128) { ds.sort((a, b) => b.rms - a.rms); ds = ds.slice(0, 128); }
   ds.sort((a, b) => a.start - b.start);
   const lmax = Math.max(...ds.map(d => d.rms), 1e-6);
   ds.forEach((d, i) => { d.id = i; d.loud = d.rms / lmax; d.gn = clamp(.14 / d.rms, .4, 3); d.glow = 0; });
@@ -540,7 +567,7 @@ setInterval(tick, 20);
 
 /* ---------------- recording ---------------- */
 let rec = null;
-const MAXREC = 12;
+const MAXREC = 30;
 async function startRec() {
   unlock(); await ctx.resume();
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Mic needs the https link (GitHub Pages).'); return; }
@@ -579,7 +606,7 @@ function stopRec() {
 }
 function updateRecUI() {
   const sec = rec ? rec.count / ctx.sampleRate : 0;
-  $('#recTime').textContent = rec ? (MAXREC - sec).toFixed(1) : (sample ? (sample.data.length / sample.sr).toFixed(1) + 's' : '12.0');
+  $('#recTime').textContent = rec ? (MAXREC - sec).toFixed(1) : (sample ? (sample.data.length / sample.sr).toFixed(1) + 's' : MAXREC.toFixed(1));
   $('#recTxt').lastChild.textContent = rec ? 'tap to stop' : (sample ? 'tap to record again' : 'tap to record');
   $('#recRing').style.strokeDashoffset = 276.5 * (1 - (rec ? sec / MAXREC : 0));
 }
@@ -629,12 +656,80 @@ async function loadFile(f) {
     const n = Math.min(buf.length, MAXREC * buf.sampleRate), data = new Float32Array(n);
     for (let c = 0; c < buf.numberOfChannels; c++) { const ch = buf.getChannelData(c); for (let i = 0; i < n; i++) data[i] += ch[i] / buf.numberOfChannels; }
     setSample(data, buf.sampleRate, true); updateRecUI();
-    toast(buf.duration > MAXREC ? 'Used the first 12 seconds.' : `${dots.length} chops.`);
+    toast(buf.duration > MAXREC ? 'Used the first 30 seconds.' : `${dots.length} chops.`);
   } catch (e) { toast('Couldn\'t read that file.'); }
 }
 
 /* ---------------- storage ---------------- */
-function idb() { return new Promise((res, rej) => { const r = indexedDB.open('sunspot', 1); r.onupgradeneeded = () => r.result.createObjectStore('s'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+function idb() { return new Promise((res, rej) => { const r = indexedDB.open('sunspot', 2);
+  r.onupgradeneeded = () => { const db = r.result;
+    if (!db.objectStoreNames.contains('s')) db.createObjectStore('s');
+    if (!db.objectStoreNames.contains('presets')) db.createObjectStore('presets', {keyPath: 'id', autoIncrement: true});
+    if (!db.objectStoreNames.contains('psamp')) db.createObjectStore('psamp'); };
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+const req = q => new Promise((res, rej) => { q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+
+/* ---------------- saves: voice + settings combos ---------------- */
+const FXKEYS = Object.keys(DEF).filter(k => k !== 'hold');
+function pickSettings() { const o = {}; FXKEYS.forEach(k => o[k] = S[k]); return o; }
+async function savePreset() {
+  const name = ($('#saveName').value || '').trim() || 'Save ' + new Date().toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+  try {
+    const db = await idb(), tx = db.transaction(['presets', 'psamp'], 'readwrite');
+    const meta = {name, date: Date.now(), settings: pickSettings(),
+      dur: sample ? sample.data.length / sample.sr : 0, chops: dots.length};
+    const id = await req(tx.objectStore('presets').add(meta));
+    if (sample) tx.objectStore('psamp').put({data: sample.data.slice(), sr: sample.sr}, id);
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error); });
+    $('#saveName').value = ''; $('#saveName').blur();
+    toast('Saved "' + name + '"'); renderSaves();
+  } catch (e) { toast('Couldn\'t save. The phone may be out of space.'); }
+}
+async function loadPreset(id, voiceToo) {
+  try {
+    const db = await idb(), tx = db.transaction(['presets', 'psamp']);
+    const meta = await req(tx.objectStore('presets').get(id));
+    const sm = voiceToo ? await req(tx.objectStore('psamp').get(id)) : null;
+    if (!meta) return;
+    const chopChanged = meta.settings.sens !== S.sens || meta.settings.maxLen !== S.maxLen;
+    Object.assign(S, meta.settings); S.hold = false; latch = [];
+    syncUI(); applyFX(); saveSettings();
+    if (sm && sm.data) { setSample(new Float32Array(sm.data), sm.sr, true, false); updateRecUI(); }
+    else if (chopChanged) runAnalysis(false);
+    else { assignNotes(); updateSet(); }
+    toast((voiceToo ? 'Loaded "' : 'Settings from "') + meta.name + '"');
+  } catch (e) { toast('Couldn\'t load that save.'); }
+}
+async function deletePreset(id) {
+  try { const db = await idb(), tx = db.transaction(['presets', 'psamp'], 'readwrite');
+    tx.objectStore('presets').delete(id); tx.objectStore('psamp').delete(id);
+    await new Promise(res => { tx.oncomplete = res; tx.onerror = res; }); } catch (e) {}
+  renderSaves();
+}
+async function renderSaves() {
+  const box = $('#saveList'); let list = [];
+  try { const db = await idb(); list = await req(db.transaction('presets').objectStore('presets').getAll()); } catch (e) {}
+  list.sort((a, b) => b.date - a.date);
+  box.innerHTML = '';
+  if (!list.length) { box.innerHTML = '<div class="empty">No saves yet.</div>'; return; }
+  for (const p of list) {
+    const el = document.createElement('div'); el.className = 'sv';
+    const when = new Date(p.date).toLocaleDateString([], {month: 'short', day: 'numeric'});
+    el.innerHTML = `<div class="nm"></div><div class="mt">${p.dur ? p.dur.toFixed(1) + 's voice · ' + p.chops + ' chops · ' : 'no voice · '}${when}</div>
+      <div class="bt"><button class="ld">Load</button><button class="fx">Settings</button><button class="del">✕</button></div>`;
+    el.querySelector('.nm').textContent = p.name;
+    el.querySelector('.ld').onclick = () => loadPreset(p.id, true);
+    el.querySelector('.fx').onclick = () => loadPreset(p.id, false);
+    const del = el.querySelector('.del');
+    del.onclick = () => { if (del.classList.contains('sure')) deletePreset(p.id); else { del.classList.add('sure'); del.textContent = 'Delete?'; setTimeout(() => { del.classList.remove('sure'); del.textContent = '✕'; }, 2500); } };
+    box.appendChild(el);
+  }
+}
+function resetEffects() {
+  ['tone', 'snap', 'mix', 'echo', 'verb'].forEach(k => S[k] = DEF[k]);
+  syncUI(); applyFX(); assignNotes(); updateSet(); saveSettings();
+  toast('Effects off: raw voice');
+}
 async function idbPut(v) { try { const db = await idb(); db.transaction('s', 'readwrite').objectStore('s').put(v, 'sample'); } catch (e) {} }
 async function idbGet() { try { const db = await idb(); return await new Promise(res => { const q = db.transaction('s').objectStore('s').get('sample'); q.onsuccess = () => res(q.result); q.onerror = () => res(null); }); } catch (e) { return null; } }
 
@@ -677,6 +772,7 @@ function openTab(t) {
   $$('.pane').forEach(p => p.classList.toggle('on', p.dataset.pane === tab));
   $('#panel').classList.toggle('open', !!tab);
   if (tab === 'rec') setTimeout(drawWave, 30);
+  if (tab === 'saves') renderSaves();
 }
 $$('#rail [data-tab]').forEach(b => b.onclick = () => openTab(b.dataset.tab));
 const FMT = {
@@ -709,6 +805,9 @@ $('#demoBtn').onclick = demoVoice;
 $('#loadBtn').onclick = () => $('#fileIn').click();
 $('#fileIn').onchange = e => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ''; };
 $('#keyBtn').onclick = () => findKey(false);
+$('#saveBtn').onclick = savePreset;
+$('#resetBtn').onclick = resetEffects;
+$('#saveName').addEventListener('keydown', e => { if (e.key === 'Enter') savePreset(); });
 document.addEventListener('pointerdown', unlock, {capture: true});
 document.addEventListener('gesturestart', e => e.preventDefault());
 
@@ -921,7 +1020,7 @@ function draw(now) {
 syncUI(); resize(); requestAnimationFrame(draw);
 (async () => {
   const saved = await idbGet();
-  if (saved && saved.data && saved.data.length) { setSample(saved.data instanceof Float32Array ? saved.data : Float32Array.from(saved.data), saved.sr, false); updateRecUI(); }
+  if (saved && saved.data && saved.data.length) { setSample(saved.data instanceof Float32Array ? saved.data : Float32Array.from(saved.data), saved.sr, false, false); updateRecUI(); }
   else openTab('rec');
 })();
 window.__sun = {get voiceBus() { return voiceBus; },S, get dots() { return dots; }, get set() { return set; }, get ctx() { return ctx; }, demoVoice, touches, updateSet, playDot, tick, analyze};
