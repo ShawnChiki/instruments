@@ -53,6 +53,13 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;color:#fff;
   padding:14px 14px 18px;transform:translateX(-120%);transition:transform .22s ease;touch-action:pan-y;
   box-shadow:0 0 40px rgba(255,90,0,.35)}
 #panel.open{transform:none}
+#panelX{position:fixed;z-index:6;top:calc(19px + var(--st));left:calc(70px + var(--sl) + min(310px,calc(100vw - 90px)) - 52px);
+  width:40px;height:40px;border-radius:50%;border:3px solid var(--gold);background:#000;color:var(--gold);padding:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transform:translateX(-120vw);transition:transform .22s ease}
+#panelX svg{width:18px;height:18px}
+#panelX.open{transform:none}
+#panelX:active{background:var(--gold);color:#000}
+h2{padding-right:44px}
 .pane{display:none}.pane.on{display:block}
 h2{margin:0 0 10px;font-size:20px;letter-spacing:.14em;color:var(--gold);text-transform:uppercase}
 h2 small{display:block;font-size:11px;letter-spacing:.08em;color:#ff9a5c;font-weight:700;margin-top:3px;text-transform:none}
@@ -139,6 +146,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   </button>
 </nav>
 
+<button id="panelX" aria-label="Close menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
 <section id="panel">
   <div class="pane" data-pane="rec">
     <h2>Voice<small>Talk, sing or rap. Up to 30 seconds.</small></h2>
@@ -771,10 +779,12 @@ function openTab(t) {
   $$('#rail [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   $$('.pane').forEach(p => p.classList.toggle('on', p.dataset.pane === tab));
   $('#panel').classList.toggle('open', !!tab);
+  $('#panelX').classList.toggle('open', !!tab);
   if (tab === 'rec') setTimeout(drawWave, 30);
   if (tab === 'saves') renderSaves();
 }
 $$('#rail [data-tab]').forEach(b => b.onclick = () => openTab(b.dataset.tab));
+$('#panelX').onclick = () => { if (tab) openTab(tab); };
 const FMT = {
   sens: v => Math.round(v * 100) + '%', maxLen: v => Math.round(v * 1000) + 'ms', bpm: v => v + ' bpm', notes: v => v,
   gate: v => Math.round(v * 100) + '%', tone: v => Math.round(v * 100) + '%', mix: v => Math.round(v * 100) + '%',
@@ -1003,7 +1013,7 @@ function draw(now) {
     g.save(); g.translate(pad.x + 11, pad.iy + pad.ih / 2); g.rotate(-Math.PI / 2); g.textAlign = 'center'; g.fillText('LOW  ·  PITCH  ·  HIGH', 0, 0); g.restore();
   }
   g.textAlign = 'right'; g.fillStyle = '#FFB300'; g.font = '800 13px Helvetica Neue, Arial';
-  g.fillText('S U N S P O T', pad.x + pad.w - 4, pad.y + 14);
+  if (!tab) g.fillText('S U N S P O T', pad.x + pad.w - 4, pad.y + 14);
   // centre text
   g.textAlign = 'center';
   if (!sample) {
