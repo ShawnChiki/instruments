@@ -29,3 +29,17 @@ A phat mono synth in the style of the Moog Sub Phatty, dressed in psychedelic de
 5. **On a computer:** keys A–K play, Z / X change octave, and a MIDI keyboard works in Chrome (CC1 = mod, CC74 = cutoff, CC71 = resonance).
 
 Your last sound is kept on the device between visits.
+
+## Grist (`grist/`)
+
+A two-finger granulator for your voice. Turn the phone sideways: the whole screen is your recording.
+
+1. **Voice tab:** record up to 30 seconds, upload audio, or try the demo voice. The white lines are the chops, cut at every hit and syllable.
+2. **Hold two fingers on the wave.** The left finger is the start of the loop and the right finger is the end. Slide the left finger up for a longer fade in, and the right finger up for a longer fade out.
+3. **Add a third finger anywhere** to bend the pitch: middle of the screen is normal, up is higher, down is lower. Let go and it springs back with a wobble.
+4. **Lift one finger** and its edge stays put, so you can move the other one on its own. **One finger alone** scrubs a frozen cloud of grains at that spot.
+5. **Magnet** (rail) snaps your fingers onto the chops. **Lock** (rail) keeps the sound going after you let go.
+6. **Fingers tab:** change what each finger's up/down does (fade in, fade out, pitch, grain size, spray, tone, speed), the pitch range, swoops vs notes vs pentatonic, and whether pitch springs back.
+7. **Grains tab:** loop through the window or scatter in it, speed, reverse, grain size, density, spray, tone. **Space tab:** echo and reverb (off to start).
+
+On a computer, click and drag across the wave to set a window. The last recording is kept on the device between visits.
