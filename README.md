@@ -9,9 +9,10 @@ A voice-chop arpeggiator made for DAFA NATION, styled after their black sun imag
 1. **Voice tab:** record up to 30 seconds of talking, singing or rapping, or upload your own audio (or a video's sound). The recording is cut at every transient, and each chop becomes a dot. Left to right is time and low to high is pitch. Filled suns have a clear pitch; rings are breaths, hits and S sounds.
 2. **Hold a finger near the dots** and the arpeggiator cycles through the nearest ones. Two fingers play two clusters. Hold keeps it going after you let go.
 3. **Tone tab:** the Tone dial fades from raw voice to resonators ringing at each chop's note. Snap retunes the chops to a key, and "Find key from voice" picks the key for you.
-4. **Synth tab:** a synth doubles every chop's note (Glass, Saw or Sub).
-5. **Saves tab:** save the current voice with all its settings, then **Load** it later, or use **Settings** to copy just the knobs onto a new voice. "Turn all effects off" goes back to the raw voice.
-6. **Red button:** records your jam to share.
+4. **Effects pad** (turn it on in the Space tab): a second pad on the bottom third. Up and down changes speed and pitch, left is stutter and right plays full chops. It stays where you leave it; tap the middle dot to reset.
+5. **Synth tab:** a synth doubles every chop's note (Glass, Saw or Sub).
+6. **Saves tab:** save the current voice with all its settings, then **Load** it later, or use **Settings** to copy just the knobs onto a new voice. "Turn all effects off" goes back to the raw voice.
+7. **Red button:** records your jam to share.
 
 Effects (Tone, Snap, Synth, Echo, Reverb) start off.
 

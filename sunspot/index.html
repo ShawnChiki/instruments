@@ -108,7 +108,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .sv .bt button.del{flex:0 0 44px;border-color:var(--red);color:var(--red)}
 .sv .bt button.del.sure{flex:0 0 74px;background:var(--red);color:#000}
 .empty{font-size:12px;font-weight:700;color:#a8662e;letter-spacing:.04em}
-#toast{position:fixed;left:50%;bottom:calc(18px + var(--sb));transform:translateX(-50%) translateY(140%);background:var(--gold);color:#000;
+#toast{position:fixed;left:calc(50% + 31px);top:calc(14px + var(--st));transform:translateX(-50%) translateY(calc(-100% - 40px));background:var(--gold);color:#000;
   padding:11px 16px;border-radius:12px;font-size:13px;letter-spacing:.04em;z-index:9;transition:transform .25s;max-width:86vw;text-align:center}
 #toast.show{transform:translateX(-50%)}
 #jamBox{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:8}
@@ -206,7 +206,9 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   </div>
 
   <div class="pane" data-pane="space">
-    <h2>Space<small>Echo and room.</small></h2>
+    <h2>Space<small>Echo, room and the effects pad.</small></h2>
+    <button class="tog" data-k="fxPad" style="margin-top:4px">Effects pad: on the bottom third</button>
+    <div class="note" style="margin-top:8px">Up and down changes speed and pitch. Left is stutter, right plays full chops. It stays where you leave it; tap the middle dot to reset.</div>
     <label class="sl"><span>Echo <b data-v="echo"></b></span><input type="range" data-k="echo" min="0" max="1" step="0.01"></label>
     <label class="sl"><span>Reverb <b data-v="verb"></b></span><input type="range" data-k="verb" min="0" max="1" step="0.01"></label>
     <label class="sl"><span>Volume <b data-v="vol"></b></span><input type="range" data-k="vol" min="0" max="1" step="0.01"></label>
@@ -247,7 +249,7 @@ const PAL = ['#FFB300','#FF5A00','#E10032','#FF1F9E','#7A00FF'];
 
 /* ---------------- settings ---------------- */
 const DEF = {sens:.55, maxLen:.25, bpm:92, div:4, pattern:'up', notes:4, gate:.6, hold:false,
-  tone:0, snap:false, key:9, scale:'minPent', mix:0, wave:'glass', oct:0, cutoff:.55, echo:0, verb:0, vol:.85};
+  tone:0, snap:false, key:9, scale:'minPent', mix:0, wave:'glass', oct:0, cutoff:.55, echo:0, verb:0, vol:.85, fxPad:false, fxU:.5, fxV:.5};
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem('sunspot-settings-v2') || '{}')); } catch (e) {}
 S.hold = false;
@@ -488,8 +490,14 @@ function findKey(quiet) {
 /* ---------------- playing ---------------- */
 function playDot(d, t, stepDur) {
   if (!sampleBuf) return;
-  const rate = (S.snap && d.pitched) ? clamp(Math.pow(2, (d.note - d.midi) / 12), .5, 2) : 1;
-  const len = Math.max(.035, Math.min(d.len / rate, S.gate * stepDur * 2.2));
+  const sp = fxSpeed();
+  const rate = clamp(((S.snap && d.pitched) ? clamp(Math.pow(2, (d.note - d.midi) / 12), .5, 2) : 1) * sp, .25, 4);
+  let len = Math.max(.035, Math.min(d.len / rate, S.gate * stepDur * 2.2));
+  if (S.fxPad) {
+    const u = S.fxU, full = d.len / rate;
+    len = u < .5 ? Math.max(.018, len * (.1 + .9 * u / .5)) : len + (Math.max(len, full) - len) * ((u - .5) / .5);
+  }
+  const fr = d.f * sp;
   const vl = Math.min(1, 2 * (1 - S.mix)) * d.gn;
   if (vl > .01) {
     const src = ctx.createBufferSource(); src.buffer = sampleBuf; src.playbackRate.value = rate;
@@ -502,7 +510,7 @@ function playDot(d, t, stepDur) {
       const res = ctx.createGain(); res.gain.value = S.tone * vl * (1.15 + S.tone * .5);
       const Q = 8 + S.tone * 55;
       for (let k = 1; k <= 5; k++) {
-        const fk = d.f * k; if (fk > 11000) break;
+        const fk = fr * k; if (fk > 11000) break;
         const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fk; bp.Q.value = Q;
         const hg = ctx.createGain(); hg.gain.value = 1 / k;
         env.connect(bp); bp.connect(hg); hg.connect(res);
@@ -513,7 +521,13 @@ function playDot(d, t, stepDur) {
     src.stop(t + len + .02);
   }
   const sl = Math.min(1, 2 * S.mix) * .2;
-  if (sl > .005) synthNote(d.f * Math.pow(2, S.oct), t, len, sl);
+  if (sl > .005) synthNote(fr * Math.pow(2, S.oct), t, len, sl);
+}
+function fxSpeed() {
+  if (!S.fxPad) return 1;
+  let sp = Math.pow(2, (S.fxV - .5) * 2);            // 0.5x .. 2x, one octave each way
+  if (S.snap) sp = Math.pow(2, Math.round(12 * Math.log2(sp)) / 12);
+  return sp;
 }
 function synthNote(f, t, len, lvl) {
   const vg = ctx.createGain(), g = vg.gain, lp = ctx.createBiquadFilter();
@@ -701,7 +715,7 @@ async function loadPreset(id, voiceToo) {
     if (!meta) return;
     const chopChanged = meta.settings.sens !== S.sens || meta.settings.maxLen !== S.maxLen;
     Object.assign(S, meta.settings); S.hold = false; latch = [];
-    syncUI(); applyFX(); saveSettings();
+    syncUI(); applyFX(); saveSettings(); resize();
     if (sm && sm.data) { setSample(new Float32Array(sm.data), sm.sr, true, false); updateRecUI(); }
     else if (chopChanged) runAnalysis(false);
     else { assignNotes(); updateSet(); }
@@ -734,7 +748,7 @@ async function renderSaves() {
   }
 }
 function resetEffects() {
-  ['tone', 'snap', 'mix', 'echo', 'verb'].forEach(k => S[k] = DEF[k]);
+  ['tone', 'snap', 'mix', 'echo', 'verb', 'fxU', 'fxV'].forEach(k => S[k] = DEF[k]);
   syncUI(); applyFX(); assignNotes(); updateSet(); saveSettings();
   toast('Effects off: raw voice');
 }
@@ -803,6 +817,7 @@ function onSet(k) {
   if (k === 'pattern' || k === 'notes') updateSet();
   if (k === 'hold' && !S.hold) { latch = []; updateSet(); }
   if (['echo', 'verb', 'bpm', 'vol'].includes(k)) applyFX();
+  if (k === 'fxPad') { resize(); updateSet(); }
   saveSettings();
 }
 $$('input[data-k]').forEach(i => i.addEventListener('input', () => { S[i.dataset.k] = +i.value; syncUI(); onSet(i.dataset.k); }));
@@ -850,6 +865,13 @@ function drawWave() {
 const cv = $('#cv'), g = cv.getContext('2d');
 let W = 0, H = 0, DPR = 1;
 const pad = {x: 0, y: 0, w: 0, h: 0, ix: 0, iy: 0, iw: 1, ih: 1};
+const fx = {x: 0, y: 0, w: 0, h: 0, ix: 0, iy: 0, iw: 1, ih: 1};
+let fxPtr = null;
+function setFx(e) {
+  let u = clamp((e.clientX - fx.ix) / fx.iw, 0, 1), v = clamp(1 - (e.clientY - fx.iy) / fx.ih, 0, 1);
+  if (Math.hypot((u - .5) * fx.iw, (v - .5) * fx.ih) < 18) { u = .5; v = .5; }
+  S.fxU = u; S.fxV = v;
+}
 function resize() {
   DPR = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight;
   cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + 'px'; cv.style.height = H + 'px';
@@ -857,6 +879,12 @@ function resize() {
   const st = parseFloat(cs.paddingTop) || 0, sr = parseFloat(cs.paddingRight) || 0, sb = parseFloat(cs.paddingBottom) || 0;
   const rail = $('#rail').getBoundingClientRect().right;
   pad.x = rail + 8; pad.y = st + 10; pad.w = W - sr - 10 - pad.x; pad.h = H - sb - 10 - pad.y;
+  if (S.fxPad) {
+    const fh = Math.round(pad.h / 3);
+    fx.x = pad.x; fx.w = pad.w; fx.h = fh - 4; fx.y = pad.y + pad.h - fx.h;
+    fx.ix = fx.x + 18; fx.iw = fx.w - 36; fx.iy = fx.y + 18; fx.ih = fx.h - 36;
+    pad.h -= fh + 6;
+  }
   pad.ix = pad.x + pad.w * .06; pad.iy = pad.y + pad.h * .07; pad.iw = pad.w * .88; pad.ih = pad.h * .86;
   drawWave();
 }
@@ -866,6 +894,10 @@ function norm(e) { return {u: (e.clientX - pad.ix) / pad.iw, v: 1 - (e.clientY -
 
 cv.addEventListener('pointerdown', e => {
   if (e.clientX < pad.x) return;
+  if (S.fxPad && e.clientY >= fx.y - 3) {
+    e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+    fxPtr = e.pointerId; setFx(e); if (tab) openTab(tab); return;
+  }
   e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch (_) {}
   if (!touches.size) { gesture = new Map(); latch = []; }
   const p = norm(e); touches.set(e.pointerId, p); gesture.set(e.pointerId, p);
@@ -875,10 +907,12 @@ cv.addEventListener('pointerdown', e => {
   tick();
 });
 cv.addEventListener('pointermove', e => {
+  if (e.pointerId === fxPtr) { setFx(e); return; }
   if (!touches.has(e.pointerId)) return;
   const p = norm(e); touches.set(e.pointerId, p); gesture.set(e.pointerId, p); updateSet();
 });
 const up = e => {
+  if (e.pointerId === fxPtr) { fxPtr = null; saveSettings(); return; }
   if (!touches.has(e.pointerId)) return;
   touches.delete(e.pointerId);
   if (!touches.size && S.hold) latch = [...gesture.values()];
@@ -1006,6 +1040,7 @@ function draw(now) {
     g.beginPath(); g.arc(x, y, 30 + Math.sin(t * 8) * 3, 0, Math.PI * 2); g.stroke();
     g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.fillStyle = '#fff'; g.fill();
   }
+  if (S.fxPad) drawFx(t);
   // axis words + wordmark
   g.fillStyle = 'rgba(255,210,140,.55)'; g.font = '800 10px Helvetica Neue, Arial'; g.textAlign = 'left';
   if (dots.length) {
@@ -1024,6 +1059,42 @@ function draw(now) {
     g.fillStyle = '#FF9A5C'; g.font = '700 12px Helvetica Neue, Arial'; g.fillText('near the dots', cx, cy + 15);
   }
   if (rec) updateRecUI();
+}
+
+function drawFx(t) {
+  g.save();
+  g.beginPath(); if (g.roundRect) g.roundRect(fx.x, fx.y, fx.w, fx.h, 18); else g.rect(fx.x, fx.y, fx.w, fx.h);
+  g.fillStyle = 'rgba(12,0,10,.84)'; g.fill();
+  g.lineWidth = 3; g.strokeStyle = fxPtr != null ? '#FF1F9E' : '#FFB300'; g.stroke();
+  g.clip();
+  // grid
+  g.strokeStyle = 'rgba(255,200,120,.1)'; g.lineWidth = 1;
+  for (let i = 0; i <= 8; i++) { const x = fx.ix + fx.iw * i / 8; g.beginPath(); g.moveTo(x, fx.iy); g.lineTo(x, fx.iy + fx.ih); g.stroke(); }
+  for (let i = 0; i <= 4; i++) { const y = fx.iy + fx.ih * i / 4; g.beginPath(); g.moveTo(fx.ix, y); g.lineTo(fx.ix + fx.iw, y); g.stroke(); }
+  const cx = fx.ix + fx.iw / 2, cy = fx.iy + fx.ih / 2;
+  g.strokeStyle = 'rgba(255,179,0,.35)'; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(cx, fx.iy); g.lineTo(cx, fx.iy + fx.ih); g.moveTo(fx.ix, cy); g.lineTo(fx.ix + fx.iw, cy); g.stroke();
+  // labels
+  g.fillStyle = 'rgba(255,210,140,.7)'; g.font = '800 10px Helvetica Neue, Arial'; g.textAlign = 'center';
+  g.fillText('FASTER · HIGHER', cx, fx.y + 13); g.fillText('SLOWER · LOWER', cx, fx.y + fx.h - 6);
+  g.textAlign = 'left'; g.fillText('STUTTER', fx.x + 8, cy + 4); g.textAlign = 'right'; g.fillText('FULL CHOPS', fx.x + fx.w - 8, cy + 4);
+  // reset dot
+  g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 2; g.beginPath(); g.arc(cx, cy, 9, 0, Math.PI * 2); g.stroke();
+  // puck
+  const px = fx.ix + S.fxU * fx.iw, py = fx.iy + (1 - S.fxV) * fx.ih;
+  if (S.fxU !== .5 || S.fxV !== .5) {
+    g.strokeStyle = 'rgba(255,31,158,.75)'; g.lineWidth = 2; g.setLineDash([5, 5]); g.lineDashOffset = -t * 25;
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(px, py); g.stroke(); g.setLineDash([]);
+  }
+  const r = 15 + lvl * 6, hg = g.createRadialGradient(px, py, 0, px, py, r * 2.4);
+  hg.addColorStop(0, 'rgba(255,140,0,.55)'); hg.addColorStop(1, 'rgba(255,31,158,0)');
+  g.fillStyle = hg; g.beginPath(); g.arc(px, py, r * 2.4, 0, Math.PI * 2); g.fill();
+  const sg = g.createRadialGradient(px - r * .3, py - r * .3, 0, px, py, r);
+  sg.addColorStop(0, '#FFF6D0'); sg.addColorStop(.45, '#FFB300'); sg.addColorStop(1, '#E10032');
+  g.fillStyle = sg; g.beginPath(); g.arc(px, py, r, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#000'; g.font = '800 9px Helvetica Neue, Arial'; g.textAlign = 'center';
+  g.fillText(fxSpeed().toFixed(2).replace(/0$/, '') + '×', px, py + 3);
+  g.restore();
 }
 
 /* ---------------- boot ---------------- */
