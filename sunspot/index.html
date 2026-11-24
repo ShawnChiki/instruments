@@ -206,8 +206,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   </div>
 
   <div class="pane" data-pane="space">
-    <h2>Space<small>Echo, room and the effects pad.</small></h2>
+    <h2>Space<small>Echo, room, the effects pad and the look.</small></h2>
     <button class="tog" data-k="fxPad" style="margin-top:4px">Effects pad: on the bottom third</button>
+    <button class="tog" data-k="sparks">Ripples + sparks when suns play</button>
+    <button class="tog" data-k="wildBg">Wild background (spinning sunburst)</button>
     <div class="note" style="margin-top:8px">Up and down changes speed and pitch. Left is stutter, right plays full chops. It stays where you leave it; tap the middle dot to reset.</div>
     <label class="sl"><span>Echo <b data-v="echo"></b></span><input type="range" data-k="echo" min="0" max="1" step="0.01"></label>
     <label class="sl"><span>Reverb <b data-v="verb"></b></span><input type="range" data-k="verb" min="0" max="1" step="0.01"></label>
@@ -249,7 +251,7 @@ const PAL = ['#FFB300','#FF5A00','#E10032','#FF1F9E','#7A00FF'];
 
 /* ---------------- settings ---------------- */
 const DEF = {sens:.55, maxLen:.25, bpm:92, div:4, pattern:'up', notes:4, gate:.6, hold:false,
-  tone:0, snap:false, key:9, scale:'minPent', mix:0, wave:'glass', oct:0, cutoff:.55, echo:0, verb:0, vol:.85, fxPad:false, fxU:.5, fxV:.5};
+  tone:0, snap:false, key:9, scale:'minPent', mix:0, wave:'glass', oct:0, cutoff:.55, echo:0, verb:0, vol:.85, fxPad:false, fxU:.5, fxV:.5, wildBg:false, sparks:true};
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem('sunspot-settings-v2') || '{}')); } catch (e) {}
 S.hold = false;
@@ -920,7 +922,18 @@ const up = e => {
 };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
 
-const ripples = [];
+const ripples = [], sparks = [];
+const HITC = ['#FFB300', '#FF5A00', '#FF1F9E', '#FFE08A', '#7A00FF'];
+function hitFx(x, y, d) {
+  const c = d.pitched ? '#FFB300' : '#FF1F9E', big = .6 + d.loud * .8;
+  if (!S.sparks) { ripples.push({x, y, r: 6, a: 1, c, w: 2.5, v: 3.2, delay: 0}); return; }
+  for (let k = 0; k < 3; k++) ripples.push({x, y, r: 4, a: .9 - k * .22, c, w: 3 - k * .7, v: (2.6 + k * .9) * big, delay: k * 5});
+  const n = Math.round(8 + d.loud * 12);
+  for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2, sp = (1.5 + Math.random() * 4.5) * big;
+    sparks.push({x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, c: d.pitched ? HITC[k % 4] : (k % 2 ? '#FF1F9E' : '#ffffff'), s: 1 + Math.random() * 2}); }
+  if (ripples.length > 90) ripples.splice(0, ripples.length - 90);
+  if (sparks.length > 500) sparks.splice(0, sparks.length - 500);
+}
 let lvl = 0, hintUntil = 0, beat = 0;
 function draw(now) {
   requestAnimationFrame(draw);
@@ -935,7 +948,7 @@ function draw(now) {
     const ct = ctx.currentTime;
     for (let i = flashes.length - 1; i >= 0; i--) if (flashes[i].t <= ct) {
       const d = flashes[i].d; d.glow = 1; const [x, y] = dotXY(d);
-      ripples.push({x, y, r: 6, a: 1, c: d.pitched ? '#FFB300' : '#FF1F9E'}); beat = 1; flashes.splice(i, 1);
+      hitFx(x, y, d); beat = 1; flashes.splice(i, 1);
     }
   }
   beat *= .9;
@@ -944,10 +957,11 @@ function draw(now) {
   const cx = pad.x + pad.w / 2, cy = pad.y + pad.h / 2, R = Math.min(pad.w, pad.h) * (.19 + lvl * .04 + beat * .012);
   const far = Math.hypot(W, H);
 
-  // rotating sunburst
+  // rotating sunburst (Wild background only)
   g.save(); g.translate(cx, cy);
+  const wild = S.wildBg, calm = wild ? 1 : .35;
   const N = 36, rot = t * .04, shift = Math.floor(t * .5);
-  for (let i = 0; i < N; i += 2) {
+  if (wild) for (let i = 0; i < N; i += 2) {
     const a0 = rot + i * Math.PI * 2 / N, a1 = a0 + Math.PI * 2 / N;
     g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, far, a0, a1); g.closePath();
     g.fillStyle = PAL[(i / 2 + shift) % PAL.length]; g.globalAlpha = .13 + lvl * .12; g.fill();
@@ -955,7 +969,7 @@ function draw(now) {
   g.globalAlpha = 1;
   // op-art rings drifting outward
   g.lineWidth = 10;
-  for (let k = 0; k < 14; k++) {
+  if (wild) for (let k = 0; k < 14; k++) {
     const r = R * 1.15 + ((t * 26 + k * 46) % (46 * 14));
     g.strokeStyle = PAL[(k + shift) % PAL.length]; g.globalAlpha = Math.max(0, .22 - r / far * .25);
     g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.stroke();
@@ -963,7 +977,7 @@ function draw(now) {
   g.globalAlpha = 1;
   // corona glow
   const cg = g.createRadialGradient(0, 0, R * .9, 0, 0, R * (2.6 + lvl * 1.5));
-  cg.addColorStop(0, 'rgba(255,179,0,.85)'); cg.addColorStop(.25, 'rgba(255,90,0,.45)'); cg.addColorStop(.6, 'rgba(225,0,50,.15)'); cg.addColorStop(1, 'rgba(122,0,255,0)');
+  cg.addColorStop(0, `rgba(255,179,0,${.85 * calm})`); cg.addColorStop(.25, `rgba(255,90,0,${.45 * calm})`); cg.addColorStop(.6, `rgba(225,0,50,${.15 * calm})`); cg.addColorStop(1, 'rgba(122,0,255,0)');
   g.fillStyle = cg; g.beginPath(); g.arc(0, 0, R * (2.6 + lvl * 1.5), 0, Math.PI * 2); g.fill();
   // corona rays from the spectrum
   const M = 120;
@@ -972,26 +986,26 @@ function draw(now) {
     const b = fbins ? fbins[bi] / 255 : 0;
     const len = R * (.1 + .25 * Math.abs(Math.sin(i * 3.1 + t * .7)) + b * 1.3);
     g.strokeStyle = i % 3 === 0 ? '#FFE08A' : (i % 3 === 1 ? '#FF5A00' : '#FF1F9E');
-    g.globalAlpha = .35 + b * .6; g.lineWidth = i % 3 === 0 ? 2.2 : 1.4;
+    g.globalAlpha = (wild ? .35 + b * .6 : .1 + b * .45); g.lineWidth = i % 3 === 0 ? 2.2 : 1.4;
     g.beginPath(); g.moveTo(Math.cos(a) * R * 1.02, Math.sin(a) * R * 1.02); g.lineTo(Math.cos(a) * (R + len), Math.sin(a) * (R + len)); g.stroke();
   }
   g.globalAlpha = 1;
   // the black sun
   g.fillStyle = '#000'; g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = '#FFD24A'; g.lineWidth = 3; g.shadowColor = '#FF8A00'; g.shadowBlur = 18 + lvl * 30; g.stroke(); g.shadowBlur = 0;
+  g.strokeStyle = '#FFD24A'; g.lineWidth = wild ? 3 : 2; g.globalAlpha = wild ? 1 : .7; g.shadowColor = '#FF8A00'; g.shadowBlur = (18 + lvl * 30) * calm; g.stroke(); g.shadowBlur = 0; g.globalAlpha = 1;
   // diamond ring glint
-  const ga = t * .35, gx = Math.cos(ga) * R, gy = Math.sin(ga) * R, gr = R * (.18 + lvl * .35 + beat * .1);
+  const ga = t * .35, gx = Math.cos(ga) * R, gy = Math.sin(ga) * R, gr = R * (.18 + lvl * .35 + beat * .1) * (wild ? 1 : .55);
   const dg = g.createRadialGradient(gx, gy, 0, gx, gy, gr);
   dg.addColorStop(0, 'rgba(255,255,255,1)'); dg.addColorStop(.25, 'rgba(255,230,150,.8)'); dg.addColorStop(1, 'rgba(255,140,0,0)');
   g.fillStyle = dg; g.beginPath(); g.arc(gx, gy, gr, 0, Math.PI * 2); g.fill();
   // inner rings in the eclipse
   g.lineWidth = 1.2;
-  for (let k = 1; k < 5; k++) { g.strokeStyle = PAL[(k + shift) % PAL.length]; g.globalAlpha = .25; g.beginPath(); g.arc(0, 0, R * (k / 5) * (1 + .03 * Math.sin(t * 2 + k)), 0, Math.PI * 2); g.stroke(); }
+  for (let k = 1; k < 5; k++) { g.strokeStyle = PAL[(k + shift) % PAL.length]; g.globalAlpha = wild ? .25 : .1; g.beginPath(); g.arc(0, 0, R * (k / 5) * (1 + .03 * Math.sin(t * 2 + k)), 0, Math.PI * 2); g.stroke(); }
   g.globalAlpha = 1;
   g.restore();
 
   // grid
-  g.strokeStyle = 'rgba(255,200,120,.09)'; g.lineWidth = 1;
+  g.strokeStyle = wild ? 'rgba(255,200,120,.09)' : 'rgba(255,200,120,.05)'; g.lineWidth = 1;
   for (let i = 0; i <= 8; i++) {
     const x = pad.ix + pad.iw * i / 8, y = pad.iy + pad.ih * i / 8;
     g.beginPath(); g.moveTo(x, pad.iy); g.lineTo(x, pad.iy + pad.ih); g.stroke();
@@ -1006,7 +1020,9 @@ function draw(now) {
   // dots
   const inSet = new Set(set);
   for (const d of dots) {
-    const [x, y] = dotXY(d), r = 5 + d.loud * 8 + d.glow * 9;
+    let [x, y] = dotXY(d); const r = 5 + d.loud * 8 + d.glow * 9;
+    if (S.sparks) for (const rp of ripples) { if (rp.delay > 0) continue; const dx = x - rp.x, dy = y - rp.y, dist = Math.hypot(dx, dy) || 1, f = 1 - Math.abs(dist - rp.r) / 16;
+      if (f > 0) { const push = f * 3.5 * rp.a; x += dx / dist * push; y += dy / dist * push; } }
     if (d.glow > .02) {
       const hg = g.createRadialGradient(x, y, 0, x, y, r * 2.6);
       hg.addColorStop(0, d.pitched ? 'rgba(255,220,120,.9)' : 'rgba(255,31,158,.85)'); hg.addColorStop(1, 'rgba(255,90,0,0)');
@@ -1027,10 +1043,19 @@ function draw(now) {
   }
   // ripples
   for (let i = ripples.length - 1; i >= 0; i--) {
-    const rp = ripples[i]; rp.r += 3.2; rp.a *= .93;
-    g.strokeStyle = rp.c; g.globalAlpha = rp.a; g.lineWidth = 2.5; g.beginPath(); g.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2); g.stroke();
+    const rp = ripples[i]; if (rp.delay > 0) { rp.delay--; continue; }
+    rp.r += rp.v || 3.2; rp.v = (rp.v || 3.2) * .985; rp.a *= .935;
+    g.strokeStyle = rp.c; g.globalAlpha = rp.a; g.lineWidth = Math.max(.6, (rp.w || 2.5) * (.4 + rp.a * .6)); g.beginPath(); g.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2); g.stroke();
     if (rp.a < .03) ripples.splice(i, 1);
   }
+  g.globalCompositeOperation = 'lighter';
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i]; sp.x += sp.vx; sp.y += sp.vy; sp.vx *= .93; sp.vy *= .93; sp.life *= .94;
+    g.globalAlpha = sp.life; g.strokeStyle = sp.c; g.lineWidth = sp.s; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(sp.x, sp.y); g.lineTo(sp.x - sp.vx * 2.2, sp.y - sp.vy * 2.2); g.stroke();
+    if (sp.life < .04) sparks.splice(i, 1);
+  }
+  g.globalCompositeOperation = 'source-over';
   g.globalAlpha = 1;
   // fingers / latch
   const fingers = touches.size ? [...touches.values()] : (S.hold ? latch : []);
