@@ -43,3 +43,20 @@ A two-finger granulator for your voice. Turn the phone sideways: the whole scree
 7. **Grains tab:** loop through the window or scatter in it, speed, reverse, grain size, density, spray, tone. **Space tab:** echo and reverb (off to start).
 
 On a computer, click and drag across the wave to set a window. The last recording is kept on the device between visits.
+
+## Sunspot XR (`sunspot-xr/`)
+
+Sunspot for the Meta Quest, played with your hands (controllers work too). Open it in the Quest browser and tap **Enter XR** to see the suns in your room, or **VR instead** for the black-sun space.
+
+1. **Rec** (top of the menu): talk, sing or rap for up to a minute. A see-through microphone appears in your hand while it records. Each chop becomes a sun; up is higher pitch and similar sounds float together.
+2. **Modes** (top of the menu):
+   - **Pinch:** the nearest suns play as an arpeggio until you let go.
+   - **Sphere:** the gap between thumb and index finger is a sphere and every sun inside plays. A quick pinch drops it where it is; pinch a dropped sphere's middle to move it or its edge to resize it.
+   - **Fingers:** one note per finger you hold out, on the sun nearest each fingertip. Each hand can play its own phrase (2 against 3) or both hands together.
+   - **Pluck:** pinch near suns to grab their strings, pull back, and let go to twang them.
+   - **Percussion:** tap suns with any fingertip.
+   - **Path:** pinch tight and draw through the suns. Paths replay at the speed you drew them, each with its own volume fader in the Paths tab.
+3. **Lock** (on to start) stops a fist from grabbing the suns. Turn it off to grab with a fist and stretch with two. **Bring here** puts the suns back in front of you. **Undo** and **Erase** work on paths and dropped spheres.
+4. **Left rail tabs:** Voice, Arp, Tone, Synth, Space (echo, room, menu shape: wide at the bottom or tall at the side) and Paths. Pop-ups are off unless you turn them on.
+
+The last recording and your paths are kept on the headset between visits.
