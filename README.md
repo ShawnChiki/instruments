@@ -48,15 +48,17 @@ On a computer, click and drag across the wave to set a window. The last recordin
 
 Sunspot for the Meta Quest, played with your hands (controllers work too). Open it in the Quest browser and tap **Enter XR** to see the suns in your room, or **VR instead** for the black-sun space.
 
-1. **Rec** (top of the menu): talk, sing or rap for up to a minute. A see-through microphone appears in your hand while it records. Each chop becomes a sun; up is higher pitch and similar sounds float together.
+1. **Rec** (top of the menu): talk, sing or rap for up to two minutes. A see-through microphone appears in your hand while it records. Each chop becomes a sun; up is higher pitch and similar sounds float together.
 2. **Modes** (top of the menu):
    - **Pinch:** the nearest suns play as an arpeggio until you let go.
-   - **Sphere:** the gap between thumb and index finger is a sphere and every sun inside plays. A quick pinch drops it where it is; pinch a dropped sphere's middle to move it or its edge to resize it.
+   - **Sphere:** the gap between thumb and index finger is a sphere and every sun inside plays. A quick pinch drops it where it is. Quick-pinch a dropped sphere's centre to delete it, hold the centre to move it, or pinch its edge to resize it.
    - **Fingers:** one note per finger you hold out, on the sun nearest each fingertip. Each hand can play its own phrase (2 against 3) or both hands together.
    - **Pluck:** pinch near suns to grab their strings, pull back, and let go to twang them.
    - **Percussion:** tap suns with any fingertip.
-   - **Path:** pinch tight and draw through the suns. Paths replay at the speed you drew them, each with its own volume fader in the Paths tab.
+   - **Path:** pinch tight and draw through the suns. Paths keep the timing you drew, snapped to the beat grid with a loop of 1, 2, 4, 8 or 16 beats (or free, or even steps), each with its own volume fader in the Paths tab.
 3. **Lock** (on to start) stops a fist from grabbing the suns. Turn it off to grab with a fist and stretch with two. **Bring here** puts the suns back in front of you. **Undo** and **Erase** work on paths and dropped spheres.
-4. **Left rail tabs:** Voice, Arp, Tone, Synth, Space (echo, room, menu shape: wide at the bottom or tall at the side) and Paths. Pop-ups are off unless you turn them on.
+4. **Header (every tab):** pause / play, tempo − and +, and Tap. The Arp tab also has **Click tempo**: click your tongue into the mic on the beat.
+5. **Jam tab:** host a jam and read out the 4-digit code, or type a code to join. Everyone pinches the same 3 real spots in the same order (say, three table corners) to calibrate, then you see each other's head, hands and suns in the room. Send your voice so the others can play it too.
+6. **Left rail tabs:** Voice, Arp, Tone, Synth, Space (echo synced to the tempo with repeats, tone and ping-pong; room; menu shape: wide at the bottom or tall at the side), Paths and Jam. Pop-ups are off unless you turn them on.
 
 The last recording and your paths are kept on the headset between visits.

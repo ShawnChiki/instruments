@@ -19,6 +19,7 @@
   addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&['+','-','=','_','0'].includes(e.key)) e.preventDefault(); });
 })();
 </script>
+<script src="../turn-config.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
@@ -47,7 +48,7 @@ html,body{margin:0;height:100%;background:#06020a;overflow:hidden;color:#fff;fon
 <div id="panelWrap"></div>
 <div id="card">
   <h1>SUNSPOT XR</h1>
-  <p>Record up to a minute of voice. Every chop becomes a sun in a 3D cloud in your room, with similar sounds floating together. Pinch inside the cloud to arpeggiate the suns near your fingers, or draw a path through them and reshape it with its handles. Works with just your hands (controllers too).</p>
+  <p>Record up to two minutes of voice. Every chop becomes a sun in a 3D cloud in your room, with similar sounds floating together. Pinch inside the cloud to arpeggiate the suns near your fingers, or draw a path through them and reshape it with its handles. Works with just your hands (controllers too).</p>
   <div class="row">
     <button id="vrBtn">Enter XR</button>
     <button id="vrOnly">VR instead</button>
@@ -68,7 +69,7 @@ const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 const ftom = f => 69 + 12 * Math.log2(f / 440);
 const NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const SCALES = {minPent:[0,3,5,7,10], majPent:[0,2,4,7,9], minor:[0,2,3,5,7,8,10], dorian:[0,2,3,5,7,9,10], phrygian:[0,1,3,5,7,8,10], hijaz:[0,1,4,5,7,8,10]};
-const MAXREC = 60;
+const MAXREC = 120;
 const COL = {y:'#FFE600', amber:'#FFB300', o:'#FF5A00', r:'#E10032', p:'#FF1F9E', v:'#7A00FF', c:'#19E3FF', g:'#7CFF00', w:'#ffffff', dark:'#2a1636', bg:'#120818'};
 const BUNGEE = 'Bungee, "Arial Black", Impact, sans-serif', SANS = 'Helvetica, Arial, sans-serif';
 const AF2 = '-apple-system, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif';
@@ -76,17 +77,18 @@ const AF2 = '-apple-system, "SF Pro Display", "Helvetica Neue", Helvetica, Arial
 /* ================= settings ================= */
 const DEF = {sens:.55, maxLen:.25, bpm:92, div:4, pattern:'up', notes:4, gate:.6, tone:0, snap:false, key:9, scale:'minPent',
   mix:0, wave:'glass', oct:0, cutoff:.55, echo:0, verb:0, vol:.85, twist:false, labels:true, layout:'pitch',
-  reach:.05, blend:true, handMode:'pinch', fcycle:1, fTogether:false, fTiming:'fill', tips:false, menuShape:'wide', erase:false, lock:true, pathTiming:'drawn', hold:false, pathDir:'fwd', pathMute:false, tab:'voice', menu:true};
+  reach:.05, blend:true, handMode:'pinch', fcycle:1, fTogether:false, fTiming:'fill', tips:false, menuShape:'wide', erase:false, lock:true, jamShow:true, jamTempo:true, pathTiming:'grid', echoSync:'1/8d', echoMs:300, echoFb:.4, echoTone:.5, ping:false, hold:false, pathDir:'fwd', pathMute:false, tab:'voice', menu:true};
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem('sunspot-xr-settings') || '{}')); } catch (e) {}
 if (S.modeVer === 2) { S.lock = true; S.modeVer = 3; }
-if (S.modeVer !== 2 && S.modeVer !== 3) { S.lock = true; S.modeVer = 3;  if (S.handMode === 'pluck') S.handMode = 'perc'; S.tips = false; S.menuShape = 'wide'; S.layout = 'pitch'; }
+if (S.modeVer === 3) { if (S.pathTiming === 'drawn') S.pathTiming = 'grid'; S.modeVer = 4; }
+if (S.modeVer !== 2 && S.modeVer !== 3 && S.modeVer !== 4) { S.lock = true; S.modeVer = 4;  if (S.handMode === 'pluck') S.handMode = 'perc'; S.tips = false; S.menuShape = 'wide'; S.layout = 'pitch'; }
 if (!['pitch', 'sound', 'grid'].includes(S.layout)) S.layout = 'pitch';
 S.hold = false; S.erase = false; if (!['pinch', 'sphere', 'fingers', 'pluck', 'perc', 'path'].includes(S.handMode)) S.handMode = 'pinch';
 const saveSettings = () => { try { localStorage.setItem('sunspot-xr-settings', JSON.stringify(S)); } catch (e) {} };
 
 /* ================= audio graph ================= */
-let ctx, master, comp, voiceBus, echoSend, verbSend, delay, fb, delayLP, verb;
+let ctx, master, comp, voiceBus, echoSend, verbSend, delay, fb, delayLP, verb, dR, lpR, fbSelf, fbLR, fbRL, panL, panR;
 function initAudio() {
   if (ctx) return;
   ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -97,9 +99,14 @@ function initAudio() {
   voiceBus = ctx.createGain(); voiceBus.gain.value = .9; voiceBus.connect(master);
   echoSend = ctx.createGain(); verbSend = ctx.createGain();
   voiceBus.connect(echoSend); voiceBus.connect(verbSend);
-  delay = ctx.createDelay(3); fb = ctx.createGain(); delayLP = ctx.createBiquadFilter();
-  delayLP.type = 'lowpass'; delayLP.frequency.value = 3000;
-  echoSend.connect(delay); delay.connect(delayLP); delayLP.connect(fb); fb.connect(delay); delayLP.connect(master);
+  // echo: two delay lines so it can bounce left-right (ping-pong) or repeat in the middle
+  delay = ctx.createDelay(4); dR = ctx.createDelay(4); delayLP = ctx.createBiquadFilter(); lpR = ctx.createBiquadFilter();
+  delayLP.type = lpR.type = 'lowpass'; delayLP.frequency.value = lpR.frequency.value = 3000;
+  fbSelf = ctx.createGain(); fbLR = ctx.createGain(); fbRL = ctx.createGain(); fb = fbSelf;
+  panL = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain(); panR = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+  echoSend.connect(delay); delay.connect(delayLP); delayLP.connect(fbSelf); fbSelf.connect(delay);
+  delayLP.connect(fbLR); fbLR.connect(dR); dR.connect(lpR); lpR.connect(fbRL); fbRL.connect(delay);
+  delayLP.connect(panL); lpR.connect(panR); panL.connect(master); panR.connect(master);
   verb = ctx.createConvolver(); verb.buffer = makeIR(2.6); verbSend.connect(verb); verb.connect(master);
   applyFX();
 }
@@ -112,12 +119,17 @@ function makeIR(sec) {
 function applyFX() {
   if (!ctx) return;
   const t = ctx.currentTime;
-  delay.delayTime.setTargetAtTime(Math.min(2.9, 60 / S.bpm * .75), t, .05);
-  fb.gain.setTargetAtTime(.12 + S.echo * .6, t, .05);
+  const dt = clamp(echoTime(), .02, 3.9), f = clamp(S.echoFb, 0, .92), co = 400 * Math.pow(30, S.echoTone);
+  delay.delayTime.setTargetAtTime(dt, t, .05); dR.delayTime.setTargetAtTime(dt, t, .05);
+  delayLP.frequency.setTargetAtTime(co, t, .05); lpR.frequency.setTargetAtTime(co, t, .05);
+  fbSelf.gain.setTargetAtTime(S.ping ? 0 : f, t, .05); fbLR.gain.setTargetAtTime(S.ping ? f : 0, t, .05); fbRL.gain.setTargetAtTime(S.ping ? f : 0, t, .05);
+  if (panL.pan) { panL.pan.setTargetAtTime(S.ping ? -.85 : 0, t, .05); panR.pan.setTargetAtTime(S.ping ? .85 : 0, t, .05); }
   echoSend.gain.setTargetAtTime(S.echo * .7, t, .05);
   verbSend.gain.setTargetAtTime(S.verb * .9, t, .05);
   master.gain.setTargetAtTime(S.vol * 1.1, t, .05);
 }
+const ECHO_BEATS = {'1/16': .25, '1/8': .5, '1/8d': .75, '1/4t': 2 / 3, '1/4': 1, '1/2': 2};
+function echoTime() { return S.echoSync === 'free' ? S.echoMs / 1000 : 60 / S.bpm * (ECHO_BEATS[S.echoSync] || .75); }
 function unlock() { initAudio(); if (ctx.state !== 'running') ctx.resume(); }
 
 /* ================= sample + analysis (same ears as Sunspot) ================= */
@@ -184,7 +196,7 @@ function analyze(x, sr) {
     const p = pitchOf(x2, Math.floor(s / 2), Math.floor(e / 2), sr2);
     ds.push({start: s / sr, len: len / sr, rms, zcr: zc / len, pitched: !!p, midi: p ? p.midi : null, conf: p ? p.conf : 0, spec: specFeatures(x, s, e, sr)});
   }
-  if (ds.length > 256) { ds.sort((a, b) => b.rms - a.rms); ds = ds.slice(0, 256); }
+  if (ds.length > 320) { ds.sort((a, b) => b.rms - a.rms); ds = ds.slice(0, 320); }
   ds.sort((a, b) => a.start - b.start);
   const lmax = Math.max(...ds.map(d => d.rms), 1e-6);
   ds.forEach((d, i) => { d.id = i; d.loud = d.rms / lmax; d.gn = clamp(.14 / d.rms, .4, 3); d.glow = 0; d.sel = 0; });
@@ -331,7 +343,7 @@ function runSimJob() {
   const t0 = performance.now();
   while (performance.now() - t0 < 7) {
     const r = simJob.gen.next();
-    if (r.done) { const pts = fitBox(r.value); dots.forEach((d, i) => d.tp = pts[i]); simJob = null; paths.forEach(computeSeq); updateCloudBox(); break; }
+    if (r.done) { const pts = fitBox(r.value); dots.forEach((d, i) => d.tp = pts[i]); simJob = null; NET.dotsVer++; paths.forEach(computeSeq); updateCloudBox(); break; }
   }
 }
 function layoutDots() {
@@ -436,7 +448,42 @@ function synthNote(f, t, len, lvl, dest) {
   else { osc('square', f / 2, 0, .5); osc('sawtooth', f, 0, .3); }
 }
 
-/* ================= recording (up to 60 s) ================= */
+/* ================= tempo: tap, or click with your mouth into the mic ================= */
+const taps = [];
+function setBpm(b) { S.bpm = clamp(Math.round(b), 40, 220); applyFX(); saveSettings(); panelDirty = true; if (typeof shareTempo === 'function') shareTempo(); }
+function tapTempo() {
+  const now = performance.now(); if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0;
+  taps.push(now); if (taps.length > 8) taps.shift(); tickSound(1300);
+  if (taps.length >= 2) { const iv = []; for (let i = 1; i < taps.length; i++) iv.push(taps[i] - taps[i - 1]); setBpm(60000 / (iv.reduce((a, b) => a + b, 0) / iv.length)); }
+  panelDirty = true;
+}
+let clickT = null;
+async function startClickTempo() {
+  if (clickT || rec) return; unlock(); await ctx.resume();
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: false, noiseSuppression: false, autoGainControl: false}}); }
+  catch (e) { toast('Mic blocked. Leave XR, tap REC on the page and allow the microphone.', true); return; }
+  const src = ctx.createMediaStreamSource(stream), proc = ctx.createScriptProcessor(1024, 1, 1), mute = ctx.createGain(); mute.gain.value = 0;
+  clickT = {stream, src, proc, mute, times: [], avg: 1e-4, last: -1, t0: ctx.currentTime};
+  proc.onaudioprocess = e => { const c = clickT; if (!c) return; const d = e.inputBuffer.getChannelData(0), base = e.playbackTime || ctx.currentTime;
+    for (let o = 0; o < d.length; o += 256) { let en = 0; for (let i = o; i < o + 256; i++) en += d[i] * d[i]; en /= 256;
+      const tt = base + o / ctx.sampleRate;
+      if (en > c.avg * 6 && en > 2e-4 && tt - c.last > .14) { c.times.push(tt); c.last = tt; panelDirty = true; }
+      c.avg = c.avg * .97 + en * .03; }
+    if (c.times.length >= 8 || ctx.currentTime - c.t0 > 12) setTimeout(stopClickTempo, 0); };
+  src.connect(proc); proc.connect(mute); mute.connect(ctx.destination); panelDirty = true;
+  toast('Click your tongue or tap the mic on the beat, about 8 times');
+}
+function stopClickTempo() {
+  const c = clickT; if (!c) return; clickT = null; c.proc.onaudioprocess = null;
+  try { c.src.disconnect(); c.proc.disconnect(); c.mute.disconnect(); } catch (e) {}
+  c.stream.getTracks().forEach(t => t.stop()); panelDirty = true;
+  if (c.times.length < 3) { toast('Heard too few clicks. Try louder clicks.', true); return; }
+  const iv = []; for (let i = 1; i < c.times.length; i++) iv.push(c.times[i] - c.times[i - 1]); iv.sort((a, b) => a - b);
+  let b = 60 / iv[Math.floor(iv.length / 2)]; while (b < 60) b *= 2; while (b > 180) b /= 2;
+  setBpm(b); toast('Tempo ' + S.bpm + ' BPM', true);
+}
+
+/* ================= recording (up to 2 minutes) ================= */
 let rec = null;
 async function startRec() {
   if (rec) return;
@@ -459,7 +506,7 @@ async function startRec() {
   };
   src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
   panelDirty = true;
-  toast('Recording. Talk, sing or rap. Up to 60 seconds.');
+  toast('Recording. Talk, sing or rap. Up to 2 minutes.');
   if (pendingStop) { pendingStop = false; stopRec(); }
 }
 let pendingStop = false;
@@ -511,7 +558,7 @@ async function loadFile(f) {
     const n = Math.min(b.length, MAXREC * b.sampleRate), data = new Float32Array(n);
     for (let c = 0; c < b.numberOfChannels; c++) { const ch = b.getChannelData(c); for (let i = 0; i < n; i++) data[i] += ch[i] / b.numberOfChannels; }
     setSample(data, b.sampleRate, true);
-    toast(`${dots.length} suns from ${f.name}` + (b.length > n ? ' (first minute)' : ''));
+    toast(`${dots.length} suns from ${f.name}` + (b.length > n ? ' (first 2 minutes)' : ''));
   } catch (e) { toast("Couldn't read that file.", true); }
 }
 function idb() { return new Promise((res, rej) => { const r = indexedDB.open('sunspot-xr', 1); r.onupgradeneeded = () => r.result.createObjectStore('s'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
@@ -588,6 +635,7 @@ const RINGC = new THREE.Color(COL.c), WHITE = new THREE.Color('#fff');
 let sunIM = null, ringIM = null, glowPts = null, timeRing = null;
 function heightCol(v) { const x = clamp(v, 0, 1) * (PALV.length - 1), i = Math.min(PALV.length - 2, Math.floor(x)); return PALV[i].clone().lerp(PALV[i + 1], x - i); }
 function place3D() {
+  if (typeof NET !== 'undefined') NET.dotsVer++;
   const dur = sample ? sample.data.length / sample.sr : 10;
   let pts;
   if (S.layout === 'grid') {   // like the phone app: left→right = time, up = pitch, depth = brightness
@@ -691,12 +739,14 @@ function allPlayers() {
   out.push(desk.player, fAll); for (const p of paths) out.push(p.player); for (const sp of spheres) out.push(sp.player);
   return out;
 }
+let paused = false;
+function setPaused(v) { paused = v; panelDirty = true; if (v) for (const p of allPlayers()) { p.nextT = 0; p.loopT = 0; } tickSound(v ? 600 : 1200); }
 function tick() {
-  if (!ctx || ctx.state !== 'running' || !dots.length) return;
+  if (!ctx || ctx.state !== 'running' || !dots.length || paused) return;
   const now = ctx.currentTime, stepDur = 60 / S.bpm / S.div;
   for (const p of allPlayers()) {
     if (p.kind === 'fingers') { tickFingers(p, now); continue; }
-    if (p.kind === 'path' && S.pathTiming === 'drawn' && p.path.T && p.path.tmap) { tickDrawn(p, now, stepDur); continue; }
+    if (p.kind === 'path' && (S.pathTiming === 'drawn' || S.pathTiming === 'grid') && p.path.T && p.path.tmap) { tickDrawn(p, now, stepDur); continue; }
     const has = p.kind === 'path' ? p.active && p.seq && p.seq.length : p.active && p.set.length;
     if (!has) { p.nextT = 0; continue; }
     if (!p.nextT || p.nextT < now - .05) {
@@ -716,15 +766,24 @@ function tick() {
   }
 }
 // Paths at the speed you drew them: each sun on the path plays when the bead passes it, then the path loops
+function gridLoop(P) {   // loop length snapped to 1, 2, 4, 8 or 16 beats
+  const beat = 60 / S.bpm, pass = (S.pathDir === 'bounce' ? 2 : 1) * P.T;
+  return beat * Math.pow(2, clamp(Math.round(Math.log2(Math.max(.01, pass / beat))), 0, 4));
+}
 function drawnEvents(P) {
-  const ev = P.seq.map(e => ({e, t: P.tmap[e.k] * P.T}));
+  let ev = P.seq.map(e => ({e, t: P.tmap[e.k] * P.T}));
   if (S.pathDir === 'bounce' && ev.length > 1) for (let i = ev.length - 2; i > 0; i--) ev.push({e: ev[i].e, t: 2 * P.T - ev[i].t});
+  if (S.pathTiming === 'grid') {
+    const pass = (S.pathDir === 'bounce' ? 2 : 1) * P.T, per = gridLoop(P), step = 60 / S.bpm / S.div, used = new Set();
+    ev = ev.map(x => ({e: x.e, t: Math.min(per - step, Math.round(x.t / pass * per / step) * step)})).filter(x => { const k = Math.round(x.t / step); if (used.has(k)) return false; used.add(k); return true; });
+  }
   return ev;
 }
 function tickDrawn(p, now, stepDur) {
   const P = p.path; if (!p.active || !P.seq.length) { p.loopT = 0; return; }
-  const per = (S.pathDir === 'bounce' ? 2 : 1) * P.T + .06, ev = drawnEvents(P);
-  if (!p.loopT || p.loopT + per < now) { p.loopT = now + .03; p.idx = 0; }
+  const grid = S.pathTiming === 'grid', per = grid ? gridLoop(P) : (S.pathDir === 'bounce' ? 2 : 1) * P.T + .06, ev = drawnEvents(P);
+  if (!ev.length) return;
+  if (!p.loopT || p.loopT + per < now) { p.loopT = grid ? Math.ceil((now + .03) / per) * per : now + .03; p.idx = 0; }
   let guard = 0;
   while (guard++ < 64) {
     if (p.idx >= ev.length) { p.loopT += per; p.idx = 0; }
@@ -776,8 +835,28 @@ function processFlashes() {
   if (!ctx) return; const now = ctx.currentTime;
   for (let i = flashes.length - 1; i >= 0; i--) { const f = flashes[i];
     if (f.t <= now) { if (f.fo) { const fp = f.fo[0].fplayer; fp.flash = fp.flash || [0, 0, 0, 0, 0]; fp.flash[f.fo[1]] = 1; }
-      if (f.b) { f.b.near.forEach((d, j) => d.glow = Math.max(d.glow, .3 + .7 * f.b.ws[j])); ghostFlash(f.p, f.pos, f.b.col); } else f.d.glow = 1; if (f.p.kind === 'path' && f.k != null) f.p.bead = f.k; flashes.splice(i, 1); } }
+      if (f.b) { f.b.near.forEach((d, j) => d.glow = Math.max(d.glow, .3 + .7 * f.b.ws[j])); ghostFlash(f.p, f.pos, f.b.col); }
+      else { f.d.glow = 1; const lp = f.p.lastD; if (lp && lp !== f.d && dots.includes(lp)) addTrail(lp, f.d, trailCol(f.p)); f.p.lastD = f.d; if (typeof netNote === 'function') netNote(f.d); }
+      if (f.p.kind === 'path' && f.k != null) f.p.bead = f.k; flashes.splice(i, 1); } }
   if (flashes.length > 400) flashes.splice(0, flashes.length - 400);
+}
+
+/* ================= constellation lines: each arpeggio draws a line from the sun it just played to the next ================= */
+const trails = [], TRAILMAX = 240;
+const trailLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false}));
+trailLines.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAILMAX * 6), 3));
+trailLines.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRAILMAX * 6), 3));
+trailLines.frustumCulled = false; cloud.add(trailLines);
+const _tc = new THREE.Color();
+function trailCol(p) { if (p.kind === 'path' && p.path) return p.path.col; if (p.sphereR != null) return AP.teal; if (p.kind === 'fingers') return AP.purple; return '#ffffff'; }
+function addTrail(a, b, col) { trails.push({a, b, life: 1, c: new THREE.Color(col)}); if (trails.length > TRAILMAX) trails.shift(); }
+function updateTrails(dt) {
+  const pa = trailLines.geometry.attributes.position, ca = trailLines.geometry.attributes.color, k = Math.exp(-dt * 1.4); let n = 0;
+  for (let i = trails.length - 1; i >= 0; i--) { const t = trails[i]; t.life *= k; if (t.life < .03 || !t.a.lp || !t.b.lp) { trails.splice(i, 1); continue; } }
+  for (const t of trails) { const v = t.life * .9;
+    pa.setXYZ(n * 2, t.a.lp.x, t.a.lp.y, t.a.lp.z); pa.setXYZ(n * 2 + 1, t.b.lp.x, t.b.lp.y, t.b.lp.z);
+    ca.setXYZ(n * 2, t.c.r * v * .55, t.c.g * v * .55, t.c.b * v * .55); ca.setXYZ(n * 2 + 1, t.c.r * v, t.c.g * v, t.c.b * v); n++; }
+  pa.needsUpdate = ca.needsUpdate = true; trailLines.geometry.setDrawRange(0, n * 2);
 }
 
 /* ================= paths (splines with handles) ================= */
@@ -933,7 +1012,7 @@ function writeHints(h) {
   drawHint(I.grip, 'GRIP', 'grab the suns · both grips = stretch + turn');
   if (path) drawHint(I.a, '✕ ' + (L ? 'X' : 'A'), 'delete the nearest path', COL.r);
   else drawHint(I.a, L ? 'X' : 'A', h.hold ? 'hold is ON: let go and it keeps playing' : 'hold: let go and it keeps playing');
-  drawHint(I.b, L ? 'Y' : 'B', L ? 'menu on / off' : 'hold to record your voice (60s)');
+  drawHint(I.b, L ? 'Y' : 'B', L ? 'menu on / off' : 'hold to record your voice (2 min)');
   drawHint(I.stick, 'STICK', (path ? 'click = play mode · ↕ reach' : 'click = path mode · ↕ suns') + ' · ↔ tempo');
   const m = h.model; if (m) { m.bA.material.color.copy(path ? RED : h.hold ? ORANGE : DARKB); }
 }
@@ -944,7 +1023,7 @@ let PW = 1700, PH = 600, PANEL_W = .6, PANEL_H = .2;
 const RS = 1.25, MPP = .00036;
 const AF = '"Space Grotesk", -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
 const AP = {blue: '#0A84FF', orange: '#FF9500', red: '#FF3B30', green: '#34C759', pink: '#FF2D55', purple: '#AF52DE', yellow: '#FFCC00', teal: '#30D5E8', indigo: '#5E5CE6'};
-const GL = {tint: 'rgba(8,12,22,.34)', edge: 'rgba(255,255,255,.75)', frame: 'rgba(255,255,255,.5)', frameHv: 'rgba(255,255,255,.95)', fill: 'rgba(255,255,255,.05)', fillHv: 'rgba(255,255,255,.16)',
+const GL = {tint: 'rgba(8,12,22,.66)', edge: 'rgba(255,255,255,.75)', frame: 'rgba(255,255,255,.5)', frameHv: 'rgba(255,255,255,.95)', fill: 'rgba(255,255,255,.05)', fillHv: 'rgba(255,255,255,.16)',
   on: 'rgba(255,255,255,.94)', ink: '#ffffff', sub: 'rgba(255,255,255,.62)', dark: '#0b0e16', track: 'rgba(255,255,255,.28)'};
 const pcv = document.createElement('canvas'); const pg = pcv.getContext('2d');
 $('#panelWrap').appendChild(pcv);
@@ -963,7 +1042,7 @@ function rebuildPanel() {
   panelDirty = true; panelPlaced = false;
 }
 let hits = [], hoverPt = null, hoverKey = '', activeSlider = null, panelDirty = true, lastPanelDraw = 0, panelPlaced = false;
-const TABS = [['voice', 'Voice', AP.red], ['arp', 'Arp', AP.orange], ['tone', 'Tone', AP.yellow], ['synth', 'Synth', AP.pink], ['space', 'Space', AP.teal], ['paths', 'Paths', AP.green]];
+const TABS = [['voice', 'Voice', AP.red], ['arp', 'Arp', AP.orange], ['tone', 'Tone', AP.yellow], ['synth', 'Synth', AP.pink], ['space', 'Space', AP.teal], ['paths', 'Paths', AP.green], ['jam', 'Jam', AP.indigo]];
 let X0 = 182, WC = 800, CX0 = 182, CW = 800, FY0 = 256, FYMAX = 1150, COLN = 1, COLI = 0, COLW = 800;
 const COLGAP = 34;
 rebuildPanel();
@@ -1021,6 +1100,7 @@ function icon(id, cx, cy, col) {
     case 'tone': g.beginPath(); g.arc(cx, cy, 15, 0, 7); g.stroke(); g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + 8, cy - 9); g.stroke(); break;
     case 'synth': g.beginPath(); for (let i = 0; i <= 40; i++) { const x = cx - 19 + i * .95, y = cy - 10 * Math.sin(i / 40 * Math.PI * 2); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); break;
     case 'space': for (let r = 8; r <= 22; r += 7) { g.beginPath(); g.arc(cx - 10, cy, r, -.85, .85); g.stroke(); } g.beginPath(); g.arc(cx - 10, cy, 3.5, 0, 7); g.fill(); break;
+    case 'jam': g.beginPath(); g.arc(cx - 8, cy, 11, 0, 7); g.stroke(); g.beginPath(); g.arc(cx + 8, cy, 11, 0, 7); g.stroke(); g.beginPath(); g.arc(cx, cy - 15, 3, 0, 7); g.fill(); break;
     case 'paths': g.beginPath(); g.moveTo(cx - 18, cy + 11); g.bezierCurveTo(cx - 5, cy - 27, cx + 5, cy + 27, cx + 18, cy - 11); g.stroke(); [[-18, 11], [0, 0], [18, -11]].forEach(([x, y]) => { g.beginPath(); g.arc(cx + x, cy + y, 4.5, 0, 7); g.fill(); }); break;
   }
   g.restore();
@@ -1030,7 +1110,7 @@ const MODES = [['pinch', 'Pinch'], ['sphere', 'Sphere'], ['fingers', 'Fingers'],
 const MODE_COL = {pinch: AP.blue, sphere: AP.teal, fingers: AP.purple, pluck: AP.pink, perc: AP.orange, path: AP.green};
 const MODE_HELP = {
   pinch: 'Pinch inside the suns: the nearest ones play as an arpeggio until you let go. Hold keeps them going.',
-  sphere: 'The gap between your thumb and index finger is a sphere; every sun inside plays. A quick pinch drops it there and it keeps playing. Pinch a dropped sphere\u2019s middle to move it, its edge to resize it.',
+  sphere: 'The gap between your thumb and index finger is a sphere; every sun inside plays. A quick pinch drops it there and it keeps playing. Quick pinch a dropped sphere\u2019s centre to delete it, hold the centre to move it, pinch its edge to resize it.',
   fingers: 'Reach in with fingers out: one note per finger, on the sun nearest each fingertip. A fist is silence.',
   pluck: 'Pinch near suns to grab their strings, pull back, let go to twang them. Pull further for louder and a little higher.',
   perc: 'Tap suns with any fingertip to hit them once, like drums. Faster taps hit harder.',
@@ -1045,14 +1125,14 @@ function drawPanel() {
   g.lineWidth = 5; g.strokeStyle = '#fff'; g.lineCap = 'round';
   [[3, 3, 1, 1], [PW - 3, 3, -1, 1], [3, PH - 3, 1, -1], [PW - 3, PH - 3, -1, -1]].forEach(([x, y, sx, sy]) => { g.beginPath(); g.moveTo(x + sx * 70, y); g.lineTo(x + sx * 30, y); g.arcTo(x, y, x, y + sy * 30, 30); g.lineTo(x, y + sy * 70); g.stroke(); });
   // icon rail down the left side
-  const railW = wide ? 128 : 156, tabH = wide ? 94 : 132, ty0 = wide ? 18 : 24;
+  const railW = wide ? 128 : 156, tabH = wide ? 81 : 132, ty0 = wide ? 14 : 24;
   g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(railW, 24, 1.5, PH - 48);
-  TABS.forEach(([id, name, c], i) => { const y = ty0 + i * tabH, on = S.tab === id, cx = railW / 2, cy = y + (wide ? 34 : 44), r = wide ? 27 : 36;
+  TABS.forEach(([id, name, c], i) => { const y = ty0 + i * tabH, on = S.tab === id, cx = railW / 2, cy = y + (wide ? 30 : 44), r = wide ? 24 : 36;
     const hv = isHover(8, y, railW - 16, tabH - 6);
     g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fillStyle = on ? GL.on : hv ? GL.fillHv : GL.fill; g.fill();
     if (!on) { g.lineWidth = 1.6; g.strokeStyle = hv ? GL.frameHv : GL.frame; g.stroke(); }
     if (on) { g.beginPath(); g.arc(cx, cy, r + 5, -.6, .6); g.lineWidth = 3; g.strokeStyle = c; g.stroke(); }
-    icon(id, cx, cy, on ? GL.dark : GL.ink); txt(name.toUpperCase(), cx, y + (wide ? 76 : 102), wide ? 13 : 16, on ? GL.ink : GL.sub, 'center', '600', 1.5);
+    icon(id, cx, cy, on ? GL.dark : GL.ink); txt(name.toUpperCase(), cx, y + (wide ? 66 : 102), wide ? 12 : 16, on ? GL.ink : GL.sub, 'center', '600', 1.5);
     hits.push({x: 8, y, w: railW - 16, h: tabH - 6, fn: () => { S.tab = id; saveSettings(); }, key: 'tab' + id}); });
   CX0 = railW + 30; CW = PW - CX0 - 30; X0 = CX0; WC = CW;
   const tab = TABS.find(t => t[0] === S.tab) || TABS[0];
@@ -1060,7 +1140,15 @@ function drawPanel() {
   txt(tab[1].toUpperCase(), CX0, hy, wide ? 30 : 36, GL.ink, 'left', '600', 4);
   g.fillStyle = tab[2]; g.fillRect(CX0, hy + 20, 34, 3);
   const dur = sample ? (sample.data.length / sample.sr) : 0;
-  txt(dots.length ? `${dots.length} SUNS · ${dur.toFixed(1)}S` : 'NO TAKE YET', CX0 + CW - (fl ? 64 : 0), hy, 17, GL.sub, 'right', '600', 2);
+  if (wide) txt(dots.length ? `${dots.length} SUNS · ${dur.toFixed(1)}S` : 'NO TAKE YET', CX0 + CW - (fl ? 64 : 0), hy, 17, GL.sub, 'right', '600', 2);
+  { // master transport: pause / play · tempo − value + · tap
+    const th = 44, ty = hy - 22; let tx = CX0 + (wide ? 250 : 200);
+    button(tx, ty, 104, th, paused ? '▶ Play' : '❚❚ Pause', paused, () => setPaused(!paused), 16, AP.green); tx += 112;
+    button(tx, ty, 44, th, '−', false, () => setBpm(S.bpm - (S.bpm > 100 ? 2 : 1)), 22); tx += 50;
+    frame(tx, ty, 118, th, false, false, null, 12); txt(Math.round(S.bpm) + ' BPM', tx + 59, ty + th / 2 + 1, 18, GL.ink, 'center', '600', 1); tx += 124;
+    button(tx, ty, 44, th, '+', false, () => setBpm(S.bpm + (S.bpm >= 100 ? 2 : 1)), 22); tx += 50;
+    button(tx, ty, 84, th, taps.length && performance.now() - taps[taps.length - 1] < 2000 ? 'Tap ' + taps.length : 'Tap', false, () => tapTempo(), 16);
+  }
   if (fl) { const bx = CX0 + CW - 44, by = hy - 22; frame(bx, by, 44, 44, false, isHover(bx, by, 44, 44), null, 22);
     g.strokeStyle = GL.ink; g.lineWidth = 2.5; g.beginPath(); g.moveTo(bx + 15, by + 15); g.lineTo(bx + 29, by + 29); g.moveTo(bx + 29, by + 15); g.lineTo(bx + 15, by + 29); g.stroke();
     hits.push({x: bx - 6, y: by - 6, w: 56, h: 56, fn: () => { S.menu = false; saveSettings(); }, key: 'close'}); }
@@ -1097,6 +1185,9 @@ function drawPanel() {
       break; }
     case 'arp':
       y = slider(y, 'Tempo', 'bpm', 40, 220, v => Math.round(v) + ' BPM', null, null, 1);
+      { y = need(y, 76); const bw = (WC - 10) / 2;
+        button(X0, y, bw, 54, taps.length && performance.now() - taps[taps.length - 1] < 2000 ? `Tap · ${taps.length}` : 'Tap tempo', false, () => tapTempo(), 18);
+        button(X0 + bw + 10, y, bw, 54, clickT ? `Listening · ${clickT.times.length}` : 'Click tempo (mic)', !!clickT, () => clickT ? stopClickTempo() : startClickTempo(), 16, AP.orange); y += 76; }
       y = seg(y, 'Pattern (pinch, sphere)', 'pattern', [['up', 'Up'], ['down', 'Down'], ['bounce', 'Bounce'], ['random', 'Rand'], ['speech', 'Speech']], AP.orange, 16);
       y = seg(y, 'Steps', 'div', [[2, '8ths'], [3, 'Trip'], [4, '16ths'], [6, 'Fast']], AP.orange, 17);
       y = slider(y, 'Suns per pinch / pluck', 'notes', 1, 8, v => Math.round(v) + '', null, null, 1);
@@ -1125,6 +1216,11 @@ function drawPanel() {
       break;
     case 'space':
       y = slider(y, 'Echo', 'echo', 0, 1, pct);
+      y = seg(y, 'Echo time', 'echoSync', [['1/16', '1/16'], ['1/8', '1/8'], ['1/8d', '1/8 ·'], ['1/4t', '1/4 T'], ['1/4', '1/4'], ['1/2', '1/2'], ['free', 'Free']], AP.teal, 15);
+      if (S.echoSync === 'free') y = slider(y, 'Echo time (free)', 'echoMs', 20, 1500, v => Math.round(v) + ' ms', null, null, 5);
+      y = slider(y, 'Echo repeats', 'echoFb', 0, .92, pct, 'one', 'many');
+      y = slider(y, 'Echo tone', 'echoTone', 0, 1, pct, 'dark', 'bright');
+      y = seg(y, 'Ping-pong', 'ping', [[false, 'Middle'], [true, 'Left ↔ right']], AP.teal, 17);
       y = slider(y, 'Room', 'verb', 0, 1, pct);
       y = slider(y, 'Volume', 'vol', 0, 1, pct);
       y = seg(y, 'Twist to bend', 'twist', [[false, 'Off'], [true, 'On']], AP.teal);
@@ -1132,11 +1228,38 @@ function drawPanel() {
       y = seg(y, 'Menu shape', 'menuShape', [['wide', 'Wide · bottom'], ['tall', 'Tall · side']], AP.teal, 18);
       y = seg(y, 'Controller button labels', 'labels', [[true, 'Show'], [false, 'Hide']], AP.teal);
       break;
+    case 'jam': {
+      if (!NET.on) {
+        y = wrap('Play together in the same room. One person hosts and reads out the 4-digit code; everyone else types it in and joins. Each headset plays its own suns out loud.', X0, y, WC, 18, 24, GL.ink) + 10;
+        y = need(y, 70); button(X0, y, Math.min(WC, 300), 54, 'Host a jam', false, () => netHost(), 19, AP.indigo); y += 74;
+        y = need(y, 24 + 52 + 4 * 52); label('Join with a code', y);
+        { const by = y + 24; frame(X0, by, Math.min(WC, 300), 48, false, false, null, 12); txt(NET.entry.padEnd(4, '·').split('').join(' '), X0 + Math.min(WC, 300) / 2, by + 25, 26, GL.ink, 'center', '600', 4);
+          const kw = Math.min(WC, 300), keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'Join'], cw = (kw - 12) / 3;
+          keys.forEach((k, i) => { const kx = X0 + (i % 3) * (cw + 6), ky = by + 56 + Math.floor(i / 3) * 50;
+            button(kx, ky, cw, 44, k, k === 'Join' && NET.entry.length === 4, () => { if (k === '⌫') NET.entry = NET.entry.slice(0, -1); else if (k === 'Join') netJoin(NET.entry); else if (NET.entry.length < 4) NET.entry += k; panelDirty = true; }, 18, AP.indigo); });
+          y = by + 56 + 4 * 50 + 10; }
+        if (NET.status) y = wrap(NET.status, X0, y, WC, 17, 23, GL.sub);
+      } else {
+        y = need(y, 70); txt('ROOM ' + NET.code, X0, y + 20, 34, GL.ink, 'left', '600', 6); txt((NET.remotes.size ? `${NET.remotes.size + 1} players` : 'waiting for others…'), X0 + WC, y + 20, 18, GL.sub, 'right', '500'); y += 60;
+        y = need(y, 70); button(X0, y, Math.min(WC, 220), 50, 'Leave', false, () => netLeave(), 18); y += 70;
+        if (NET.status) y = wrap(NET.status, X0, y, WC, 17, 23, GL.sub);
+      }
+      y = need(y, 24 + 54 + 60); label('Room calibration', y); y += 24;
+      button(X0, y, Math.min(WC, 360), 54, CAL.step >= 0 ? `Pinch point ${CAL.step + 1} of 3…` : CAL.done ? 'Calibrated · redo' : 'Calibrate (3 points)', CAL.step >= 0 || CAL.done, () => calStart(), 17, AP.green); y += 66;
+      y = wrap('Everyone pinches the same 3 real spots in the same order, like three corners of a table. Then heads, hands and suns line up in the room.', X0, y, WC, 17, 23, GL.sub) + 12;
+      if (NET.on) {
+        y = need(y, 70); button(X0, y, Math.min(WC, 300), 52, 'Send my voice to the others', false, () => netShareVoice(), 16, null, !sample); y += 68;
+        for (const [id, v] of NET.voices) { y = need(y, 64); const r = NET.remotes.get(id); button(X0, y, Math.min(WC, 300), 50, 'Use the voice they sent', false, () => useVoice(id), 16, r ? '#' + r.col.getHexString() : null); y += 62; }
+        for (const [id, v] of NET.inVoice) { y = need(y, 30); txt(`Receiving a voice… ${Math.round(v.got / v.n * 100)}%`, X0, y + 12, 17, GL.sub, 'left', '500'); y += 30; }
+        y = seg(y, 'Show the others\u2019 suns', 'jamShow', [[true, 'Show'], [false, 'Hide']], AP.indigo);
+        if (!NET.host) y = seg(y, 'Tempo', 'jamTempo', [[true, 'Follow the host'], [false, 'My own']], AP.indigo, 16);
+      }
+      break; }
     case 'paths': {
       y = slider(y, 'Reach', 'reach', .02, .15, v => Math.round(v * 100) + ' cm', 'tight', 'wide');
       y = seg(y, 'Direction', 'pathDir', [['fwd', 'Loop'], ['bounce', 'Back + forth']], AP.green);
       y = seg(y, 'Paths', 'pathMute', [[false, 'Playing'], [true, 'Muted']], AP.green);
-      y = seg(y, 'Timing', 'pathTiming', [['drawn', 'Speed I drew'], ['beat', 'On the beat']], AP.green, 17);
+      y = seg(y, 'Timing', 'pathTiming', [['grid', 'Drawn · on grid'], ['drawn', 'Drawn · free'], ['beat', 'Even steps']], AP.green, 16);
       if (!paths.length) { y = wrap('No paths yet. Choose Path up top, then pinch and draw.', X0, y, WC, 18, 24, GL.sub); break; }
       // mixer: one vertical fader per path, in its colour
       { const fh = 190, blockH = 24 + fh + 96; y = need(y, blockH); label('Path volumes', y);
@@ -1176,12 +1299,15 @@ function pLeave() { if (hoverPt) { hoverPt = null; hoverKey = ''; panelDirty = t
 function onSet(k) {
   if (k === 'sens' || k === 'maxLen') { clearTimeout(reTimer); reTimer = setTimeout(() => runAnalysis(false), 250); }
   if (k === 'snap' || k === 'key' || k === 'scale') assignNotes();
-  if (['echo', 'verb', 'vol', 'bpm'].includes(k)) applyFX();
+  if (k === 'bpm' && typeof shareTempo === 'function') shareTempo();
+  if (['echo', 'verb', 'vol', 'bpm', 'echoSync', 'echoMs', 'echoFb', 'echoTone', 'ping'].includes(k)) applyFX();
   if (k === 'layout') { place3D(); paths.forEach(computeSeq); }
   if (k === 'world') applyWorld();
   if (k === 'reach' || k === 'blend') paths.forEach(computeSeq);
   if (k === 'labels') hands.forEach(h => h.hints && (h.hints.grp.visible = S.labels));
   if (k === 'menuShape') rebuildPanel();
+  if (k === 'jamShow') NET.showOthers = S.jamShow;
+  if (k === 'jamTempo') NET.followTempo = S.jamTempo;
   saveSettings(); panelDirty = true;
 }
 // desktop panel pointer
@@ -1279,6 +1405,7 @@ function updateHand(h) {
   if (h.panelPtr) { if (!on(0)) { h.panelPtr = false; pUp(); } }
   else {
     // --- trigger
+    if (down(0) && CAL.step >= 0) { calPoint(tipW); h.prev = b.map(x => x.pressed); return; }
     if (down(0)) {
       const hd = nearestHandle(tipW, .04);
       if (hd) { pushUndo({t: 'edit', p: hd.path, pts: snapPath(hd.path).pts}); h.drag = {path: hd.path, i: hd.i, off: hd.path.pts[hd.i].clone().sub(tipL)}; buzz(h, .4, 25); }
@@ -1432,7 +1559,8 @@ function updateTHand(H) {
   // pinch
   const pl = cloud.worldToLocal(H.pp.clone());
   if (H.pinch && !H.wasPinch) {
-    if (H.nearPanel || H.poke) H.ignore = true;
+    if (CAL.step >= 0 && !H.nearPanel && !H.poke) { calPoint(H.pp); H.ignore = true; }
+    else if (H.nearPanel || H.poke) H.ignore = true;
     else if (panelFloating && S.menu && panelMesh.parent === scene && H.pp.distanceTo(bar.getWorldPosition(new V3())) < .06) { H.movePanel = panelMesh.position.clone().sub(H.pp); tickSound(900); }
     else if (cloudBar.visible && H.pp.distanceTo(cloudBar.getWorldPosition(new V3())) < .07) { H.moveCloud = cloud.position.clone().sub(H.pp); tickSound(900); }
     else { const hd = nearestHandle(H.pp, .045);
@@ -1463,15 +1591,18 @@ function updateTHand(H) {
   if (S.handMode === 'sphere') {
     const c = H.pp, rW = Math.max(.006, pd / 2), cl = cloud.worldToLocal(c.clone()), tnow = performance.now();
     H.sphHist = H.sphHist || []; H.sphHist.push([tnow, rW, c.clone()]); while (H.sphHist.length && H.sphHist[0][0] < tnow - 700) H.sphHist.shift();
-    if (H.pinch && !H.wasPinch && !H.nearPanel && !H.poke) {
+    if (H.pinch && !H.wasPinch && !H.nearPanel && !H.poke && !H.ignore) {
       const hit = nearestSphere(cl);
       if (hit && S.erase) { deleteSphere(hit.s); tickSound(500); }
-      else if (hit) { pushUndo({t: 'sphEdit', s: hit.s, pos: hit.s.pos.clone(), r: hit.s.r}); H.sEdit = {s: hit.s, move: hit.d < hit.s.r * .45, off: hit.s.pos.clone().sub(cl)}; tickSound(1000); }
+      else if (hit) { pushUndo({t: 'sphEdit', s: hit.s, pos: hit.s.pos.clone(), r: hit.s.r}); H.sEdit = {s: hit.s, move: hit.d < hit.s.r * .45, off: hit.s.pos.clone().sub(cl), t0: tnow, p0: cl.clone(), moved: 0}; tickSound(1000); }
       else { let past = H.sphHist[0]; for (const e of H.sphHist) if (e[0] <= tnow - 260) past = e;   // the size you had just before closing your fingers
         if (past && past[1] > .01 && dots.length) { const s0 = addSphere(cloud.worldToLocal(past[2].clone()), past[1] / cloud.scale.x); pushUndo({t: 'sphAdd', s: s0}); tickSound(1600); } }
     }
-    if (H.sEdit) { if (!H.pinch) { H.sEdit = null; } else { const sp = H.sEdit.s;
-      if (H.sEdit.move) sp.pos.copy(cl).add(H.sEdit.off); else sp.r = clamp(cl.distanceTo(sp.pos), .012, .4); } }
+    if (H.sEdit) {
+      if (!H.pinch) { const e = H.sEdit; H.sEdit = null;
+        if (e.move && tnow - e.t0 < 350 && e.moved < .015 * Math.max(1, 1 / cloud.scale.x)) { const top = undoStack[undoStack.length - 1]; if (top && top.t === 'sphEdit' && top.s === e.s) undoStack.pop(); deleteSphere(e.s); tickSound(500); } }
+      else { const sp = H.sEdit.s; H.sEdit.moved = Math.max(H.sEdit.moved, cl.distanceTo(H.sEdit.p0));
+        if (H.sEdit.move) sp.pos.copy(cl).add(H.sEdit.off); else sp.r = clamp(cl.distanceTo(sp.pos), .012, .4); } }
     const on = !H.fist && !H.pinch && !H.sEdit && pd < .18 && cloudBox.containsPoint(cl) && dots.length > 0;
     H.sphMesh.visible = !H.fist && !H.pinch && !H.sEdit && pd < .18; H.sphMesh.position.copy(c); H.sphMesh.scale.setScalar(rW); H.sphMesh.lookAt(headPos);
     H.sphMesh.material.opacity = on ? .1 : .04; H.sphRing.material.opacity = on ? .9 : .35;
@@ -1549,8 +1680,11 @@ function addSphere(pos, r) {
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), new THREE.MeshBasicMaterial({color: '#ffffff', transparent: true, opacity: .07, depthWrite: false, toneMapped: false}));
   const ring = new THREE.Mesh(new THREE.TorusGeometry(1, .012, 6, 72), new THREE.MeshBasicMaterial({color: AP.teal, transparent: true, opacity: .85, toneMapped: false})); mesh.add(ring);
   const dot = new THREE.Mesh(new THREE.SphereGeometry(.06, 12, 8), new THREE.MeshBasicMaterial({color: '#ffffff', transparent: true, opacity: .6, toneMapped: false})); mesh.add(dot);
+  const xMark = new THREE.Group(), xm = new THREE.MeshBasicMaterial({color: AP.red, toneMapped: false, depthTest: false});
+  for (const a of [Math.PI / 4, -Math.PI / 4]) { const b = new THREE.Mesh(new THREE.BoxGeometry(.32, .05, .01), xm); b.rotation.z = a; xMark.add(b); }
+  xMark.visible = false; xMark.renderOrder = 40; mesh.add(xMark);
   cloud.add(mesh);
-  const sp = {pos: pos.clone(), r, mesh, ring, player: makePlayer('hand')}; sp.player.active = true; sp.player.sphereR = r; sp.player.pt.copy(pos);
+  const sp = {pos: pos.clone(), r, mesh, ring, dot, xMark, player: makePlayer('hand')}; sp.player.active = true; sp.player.sphereR = r; sp.player.pt.copy(pos);
   spheres.push(sp); if (spheres.length > 8) removeSphere(spheres[0]); panelDirty = true; return sp;
 }
 function removeSphere(sp) { const i = spheres.indexOf(sp); if (i < 0) return; spheres.splice(i, 1); sp.mesh.traverse(o => { if (o.geometry) o.geometry.dispose(); }); sp.mesh.removeFromParent(); panelDirty = true; }
@@ -1559,7 +1693,9 @@ function clearSpheres() { if (!spheres.length) return; pushUndo({t: 'multi', ops
 function nearestSphere(local) { let best = null; for (const sp of spheres) { const d = local.distanceTo(sp.pos); if (d < sp.r * 1.15 + .02 && (!best || d / sp.r < best.d / best.s.r)) best = {s: sp, d}; } return best; }
 function updateSpheres() {
   for (const sp of spheres) { sp.player.pt.copy(sp.pos); sp.player.sphereR = sp.r; sp.mesh.position.copy(sp.pos); sp.mesh.scale.setScalar(sp.r);
-    sp.ring.lookAt(headPos); sp.mesh.material.opacity = .05 + (sp.player.set.length ? .04 : 0); }
+    sp.ring.lookAt(headPos); sp.mesh.material.opacity = .05 + (sp.player.set.length ? .04 : 0);
+    let near = false; if (S.handMode === 'sphere') for (const H of tHands) if (H.on && H.im.visible && cloud.worldToLocal(H.pp.clone()).distanceTo(sp.pos) < sp.r * .45) near = true;
+    sp.xMark.visible = near; sp.dot.visible = !near; if (near) sp.xMark.lookAt(headPos); }
 }
 // --- Bring here: put the suns in front of you, facing you, at normal size
 function bringHere() {
@@ -1683,9 +1819,161 @@ addEventListener('pointerup', e => {
 });
 addEventListener('keydown', e => { if (e.key === 'p' || e.key === 'P') setHandMode(S.handMode === 'path' ? 'pinch' : 'path'); });
 
+/* ================= multiplayer jam (PeerJS) + 3-point room calibration ================= */
+// Everyone pinches the same 3 real spots (say, three corners of a table) in the same order.
+// Those points define a shared frame, so heads, hands and suns line up in the room for everybody.
+const CAL = {pts: [], M: new THREE.Matrix4(), Minv: new THREE.Matrix4(), done: false, step: -1, marks: new THREE.Group()};
+scene.add(CAL.marks);
+const PCOL = ['#30D5E8', '#FF2D55', '#FFCC00', '#34C759', '#AF52DE', '#FF9500'];
+function calStart() { CAL.step = 0; CAL.pts = []; CAL.marks.clear(); panelDirty = true; toast('Calibrate: pinch the first of your 3 shared spots', true); }
+function calPoint(w) {
+  CAL.pts.push(w.clone());
+  const m = new THREE.Group(); m.position.copy(w);
+  m.add(new THREE.Mesh(new THREE.TorusGeometry(.018, .0018, 6, 40), new THREE.MeshBasicMaterial({color: '#ffffff', toneMapped: false})));
+  const lab = textSprite(String(CAL.pts.length), '#ffffff', .022, 'rgba(8,12,22,.6)'); lab.position.y = .035; m.add(lab);
+  CAL.marks.add(m); tickSound(1400 + CAL.pts.length * 200);
+  if (CAL.pts.length < 3) { CAL.step = CAL.pts.length; toast(`Point ${CAL.pts.length} set. Pinch point ${CAL.pts.length + 1}.`, true); panelDirty = true; return; }
+  const [A, B, C] = CAL.pts, x = B.clone().sub(A).normalize(), z = x.clone().cross(C.clone().sub(A)).normalize(), y = z.clone().cross(x).normalize();
+  if (!isFinite(z.x) || z.lengthSq() < .5) { toast('Those points are in a line. Try three spots that make a triangle.', true); calStart(); return; }
+  CAL.M.makeBasis(x, y, z).setPosition(A); CAL.Minv.copy(CAL.M).invert(); CAL.done = true; CAL.step = -1; panelDirty = true;
+  for (const r of NET.remotes.values()) r.grp.matrix.copy(CAL.M);
+  toast('Room calibrated. Ask everyone else to pinch the same 3 spots in the same order.', true);
+}
+const NET = {on: false, host: false, code: '', peer: null, conns: new Map(), hostConn: null, me: 'solo', remotes: new Map(), lastPose: 0, lastObjs: 0, dotsVer: 0, sentVer: -1,
+  notes: [], inVoice: new Map(), voices: new Map(), entry: '', status: '', nextId: 1, followTempo: S.jamTempo !== false, showOthers: S.jamShow !== false};
+function netLoadPeer() { return new Promise((res, rej) => { if (window.Peer) return res(); const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js'; sc.onload = res; sc.onerror = () => rej(new Error('could not load the room library')); document.head.appendChild(sc); }); }
+const netPeer = id => window.__peerOpts ? (id ? new Peer(id, window.__peerOpts) : new Peer(window.__peerOpts)) : (id ? new Peer(id) : new Peer());
+const roomId = code => 'sunspotxr-' + code;
+async function netHost() {
+  if (NET.on) return; NET.status = 'Starting…'; panelDirty = true;
+  try { await netLoadPeer(); } catch (e) { NET.status = 'Could not load the room library'; panelDirty = true; return; }
+  const tryCode = (left) => {
+    const code = String(1000 + Math.floor(Math.random() * 9000)), peer = netPeer(roomId(code));
+    peer.on('open', () => { NET.peer = peer; NET.on = true; NET.host = true; NET.code = code; NET.me = 'h'; NET.status = ''; NET.sentVer = -1; panelDirty = true; tickSound(1500); });
+    peer.on('error', e => { if (e.type === 'unavailable-id' && left > 0) { peer.destroy(); tryCode(left - 1); } else { NET.status = 'Room error: ' + e.type; panelDirty = true; } });
+    peer.on('connection', c => {
+      const id = 'p' + NET.nextId++;
+      c.on('open', () => { NET.conns.set(id, c); c.send({t: 'hello', you: id, bpm: S.bpm}); NET.sentVer = -1; panelDirty = true; toast('Someone joined the jam', true); });
+      c.on('data', m => { if (m && typeof m === 'object') { m.id = id; netMsg(m); hostRelay(m, id); } });
+      c.on('close', () => { NET.conns.delete(id); dropRemote(id); hostRelay({t: 'bye', id}, id); panelDirty = true; });
+    });
+  };
+  tryCode(5);
+}
+async function netJoin(code) {
+  if (NET.on || code.length !== 4) return; NET.status = 'Joining ' + code + '…'; panelDirty = true;
+  try { await netLoadPeer(); } catch (e) { NET.status = 'Could not load the room library'; panelDirty = true; return; }
+  const peer = netPeer(); let ok = false;
+  const to = setTimeout(() => { if (!ok) { NET.status = 'No jam found with code ' + code; peer.destroy(); panelDirty = true; } }, 12000);
+  peer.on('open', () => { const c = peer.connect(roomId(code), {reliable: true}); NET.hostConn = c;
+    c.on('open', () => { ok = true; clearTimeout(to); NET.peer = peer; NET.on = true; NET.host = false; NET.code = code; NET.status = ''; NET.sentVer = -1; panelDirty = true; tickSound(1500); });
+    c.on('data', m => { if (m && typeof m === 'object') netMsg(m); });
+    c.on('close', () => { netLeave(); toast('The jam ended', true); }); });
+  peer.on('error', e => { NET.status = e.type === 'peer-unavailable' ? 'No jam found with code ' + code : 'Room error: ' + e.type; panelDirty = true; });
+}
+function netLeave() {
+  try { if (NET.peer) NET.peer.destroy(); } catch (e) {}
+  NET.on = false; NET.host = false; NET.peer = null; NET.hostConn = null; NET.conns.clear(); NET.code = ''; NET.me = 'solo';
+  for (const id of [...NET.remotes.keys()]) dropRemote(id); panelDirty = true;
+}
+function netSend(m) {
+  if (!NET.on) return; m.id = NET.me;
+  if (NET.host) { for (const c of NET.conns.values()) if (c.open) c.send(m); }
+  else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(m);
+}
+function hostRelay(m, from) { for (const [id, c] of NET.conns) if (id !== from && c.open) c.send(m); }
+function netNote(d) { if (NET.on) { const j = dots.indexOf(d); if (j >= 0) NET.notes.push(j); } }
+// --- what the others look like here: head ring, hands, their suns
+function remote(id) {
+  let r = NET.remotes.get(id); if (r) return r;
+  const col = new THREE.Color(PCOL[(NET.remotes.size + 1) % PCOL.length]);
+  const grp = new THREE.Group(); grp.matrixAutoUpdate = false; grp.matrix.copy(CAL.M); scene.add(grp);
+  const head = new THREE.Group();
+  head.add(new THREE.Mesh(new THREE.TorusGeometry(.09, .004, 8, 48), new THREE.MeshBasicMaterial({color: col, toneMapped: false})));
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(.16, .045, .01), new THREE.MeshBasicMaterial({color: col, transparent: true, opacity: .35, toneMapped: false})); visor.position.z = -.09; head.add(visor);
+  grp.add(head);
+  const joints = new THREE.InstancedMesh(new THREE.SphereGeometry(.009, 10, 8), new THREE.MeshBasicMaterial({color: col, toneMapped: false}), 14); joints.count = 0; joints.frustumCulled = false; grp.add(joints);
+  const bones = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color: col, transparent: true, opacity: .6}));
+  bones.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(20 * 6), 3)); bones.frustumCulled = false; grp.add(bones);
+  const cgrp = new THREE.Group(); cgrp.matrixAutoUpdate = false; grp.add(cgrp);
+  r = {id, col, grp, head, joints, bones, cgrp, pts: null, glow: null, base: null, objs: new THREE.Group(), seen: performance.now()};
+  cgrp.add(r.objs); NET.remotes.set(id, r); panelDirty = true; return r;
+}
+function dropRemote(id) { const r = NET.remotes.get(id); if (!r) return; r.grp.traverse(o => { if (o.geometry) o.geometry.dispose(); }); r.grp.removeFromParent(); NET.remotes.delete(id); NET.voices.delete(id); panelDirty = true; }
+const _m16 = new THREE.Matrix4();
+function netMsg(m) {
+  if (m.t === 'hello') { NET.me = m.you; if (NET.followTempo && m.bpm) setBpm(m.bpm); return; }
+  if (m.t === 'bye') { dropRemote(m.id); return; }
+  if (m.t === 'tempo') { if (!NET.host && NET.followTempo) setBpm(m.bpm); return; }
+  if (m.id === NET.me) return;
+  const r = remote(m.id); r.seen = performance.now();
+  if (m.t === 'pose') {
+    const h = m.h; r.head.position.set(h[0], h[1], h[2]); r.head.quaternion.set(h[3], h[4], h[5], h[6]);
+    const hp = m.hp || [], n = Math.min(14, hp.length / 3); r.joints.count = n;
+    for (let i = 0; i < n; i++) { _m16.makeTranslation(hp[i * 3], hp[i * 3 + 1], hp[i * 3 + 2]); r.joints.setMatrixAt(i, _m16); } r.joints.instanceMatrix.needsUpdate = true;
+    const ba = r.bones.geometry.attributes.position; let b = 0;
+    for (let hand = 0; hand * 7 < n; hand++) { const o = hand * 7; for (let k = 1; k < 7 && o + k < n; k++) { const w = o * 3, t = (o + k) * 3; ba.setXYZ(b * 2, hp[w], hp[w + 1], hp[w + 2]); ba.setXYZ(b * 2 + 1, hp[t], hp[t + 1], hp[t + 2]); b++; } }
+    ba.needsUpdate = true; r.bones.geometry.setDrawRange(0, b * 2);
+    if (m.c) { r.cgrp.matrix.fromArray(m.c); }
+  } else if (m.t === 'dots') {
+    if (r.pts) { r.pts.geometry.dispose(); r.pts.removeFromParent(); }
+    const n = m.lp.length / 3, g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(m.lp), 3));
+    r.base = Float32Array.from(m.col); g.setAttribute('color', new THREE.BufferAttribute(Float32Array.from(m.col), 3)); r.glow = new Float32Array(n);
+    r.pts = new THREE.Points(g, new THREE.PointsMaterial({size: .022, vertexColors: true, map: glowTex, transparent: true, depthWrite: false, toneMapped: false}));
+    r.pts.frustumCulled = false; r.cgrp.add(r.pts);
+  } else if (m.t === 'notes') { if (r.glow) for (const j of m.js) if (j < r.glow.length) r.glow[j] = 1; }
+  else if (m.t === 'objs') {
+    r.objs.traverse(o => { if (o.geometry) o.geometry.dispose(); }); r.objs.clear();
+    for (const q of m.sph || []) { const sm = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshBasicMaterial({color: r.col, wireframe: true, transparent: true, opacity: .18, depthWrite: false})); sm.position.set(q[0], q[1], q[2]); sm.scale.setScalar(q[3]); r.objs.add(sm); }
+    for (const pth of m.paths || []) { const pts = []; for (let i = 0; i < pth.p.length; i += 3) pts.push(new V3(pth.p[i], pth.p[i + 1], pth.p[i + 2]));
+      if (pts.length > 1) r.objs.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getPoints(80)), new THREE.LineBasicMaterial({color: pth.c, transparent: true, opacity: .7}))); }
+  } else if (m.t === 'vstart') { NET.inVoice.set(m.id, {sr: m.sr, n: m.n, data: new Int16Array(m.n), got: 0}); panelDirty = true; }
+  else if (m.t === 'vchunk') { const v = NET.inVoice.get(m.id); if (!v) return; const a = new Int16Array(m.d instanceof ArrayBuffer ? m.d : (m.d.buffer || m.d)); v.data.set(a.subarray(0, Math.min(a.length, v.n - m.o)), m.o); v.got += a.length;
+    if (v.got >= v.n) { NET.inVoice.delete(m.id); NET.voices.set(m.id, v); panelDirty = true; toast('A voice arrived. Use it from the Jam tab.', true); } }
+}
+function netShareVoice() {
+  if (!NET.on || !sample) return;
+  const sr = 22050, ratio = sample.sr / sr, n = Math.floor(sample.data.length / ratio), out = new Int16Array(n);
+  for (let i = 0; i < n; i++) out[i] = clamp(sample.data[Math.floor(i * ratio)], -1, 1) * 32767;
+  netSend({t: 'vstart', sr, n}); const CH = 16384; let o = 0;
+  const pump = () => { while (o < n) { const ch = NET.host ? [...NET.conns.values()][0] : NET.hostConn; if (ch && ch.dataChannel && ch.dataChannel.bufferedAmount > 1e6) { setTimeout(pump, 30); return; }
+    const part = out.slice(o, o + CH); netSend({t: 'vchunk', o, d: part.buffer}); o += CH; }
+    toast('Your voice was sent', true); };
+  pump();
+}
+function useVoice(id) { const v = NET.voices.get(id); if (!v) return; const f = new Float32Array(v.n); for (let i = 0; i < v.n; i++) f[i] = v.data[i] / 32767; setSample(f, v.sr, true); toast('Playing with their voice now', true); }
+const _p = new V3(), _q2 = new THREE.Quaternion(), _s = new V3();
+function toShared(w) { return w.clone().applyMatrix4(CAL.Minv); }
+const r3 = v => [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)];
+function netTick(now) {
+  if (!NET.on) return;
+  // what we send: pose + cloud ~15 times a second, played notes every frame, suns when the layout changes, spheres/paths each second
+  if (NET.notes.length) { netSend({t: 'notes', js: NET.notes.splice(0)}); }
+  if (now - NET.lastPose > 66) { NET.lastPose = now;
+    camera.getWorldPosition(_p); camera.getWorldQuaternion(_q2);
+    const hp = toShared(_p), hq = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(CAL.Minv)).multiply(_q2);
+    const pts = [];
+    for (const H of tHands) { if (!H.on || !H.im.visible) continue; const J = H.hand.joints;
+      for (const n of ['wrist', 'thumb-tip', 'index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip']) pts.push(...r3(toShared(J[n].position)));
+      pts.push(...r3(toShared(H.pp))); }
+    for (const h of hands) if (h.src && !h.src.hand && h.tipW) { const t = r3(toShared(h.tipW)); for (let k = 0; k < 7; k++) pts.push(...t); }
+    const cm = new THREE.Matrix4().multiplyMatrices(CAL.Minv, cloud.matrixWorld).toArray().map(v => +v.toFixed(4));
+    netSend({t: 'pose', h: [...r3(hp), +hq.x.toFixed(4), +hq.y.toFixed(4), +hq.z.toFixed(4), +hq.w.toFixed(4)], hp: pts, c: cm});
+  }
+  if (NET.sentVer !== NET.dotsVer && dots.length && !simJob) { NET.sentVer = NET.dotsVer;
+    netSend({t: 'dots', lp: dots.flatMap(d => r3(d.tp)), col: dots.flatMap(d => [+d.col.r.toFixed(3), +d.col.g.toFixed(3), +d.col.b.toFixed(3)])}); }
+  if (now - NET.lastObjs > 1000) { NET.lastObjs = now;
+    netSend({t: 'objs', sph: spheres.map(sp => [...r3(sp.pos), +sp.r.toFixed(3)]), paths: paths.map(p => ({c: p.col, p: p.pts.flatMap(r3)}))}); }
+  // their suns glow when they play them
+  for (const r of NET.remotes.values()) { if (!r.pts || !r.glow) continue; const ca = r.pts.geometry.attributes.color;
+    for (let i = 0; i < r.glow.length; i++) { const g = r.glow[i]; r.glow[i] *= .9; const b = .35 + g * 1.4; ca.setXYZ(i, Math.min(1, r.base[i * 3] * b + g * .3), Math.min(1, r.base[i * 3 + 1] * b + g * .3), Math.min(1, r.base[i * 3 + 2] * b + g * .3)); }
+    ca.needsUpdate = true; r.pts.visible = NET.showOthers; r.objs.visible = NET.showOthers; }
+}
+function shareTempo() { if (NET.on && NET.host) netSend({t: 'tempo', bpm: S.bpm}); }
+
 /* ================= per-frame ================= */
 const beams = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color: '#ffffff', transparent: true, opacity: .35, depthWrite: false}));
-beams.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 80), 3)); beams.frustumCulled = false; cloud.add(beams);
+beams.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 120), 3)); beams.frustumCulled = false; cloud.add(beams);
 function updateSets() {
   for (const d of dots) d.sel = 0;
   const n = Math.round(S.notes), ba = beams.geometry.attributes.position; let bi = 0;
@@ -1701,20 +1989,21 @@ function updateSets() {
       const inside = dots.filter(d => d.tp.distanceTo(p.pt) < p.sphereR + .012);
       if (S.pattern === 'speech') inside.sort((a, b) => a.start - b.start); else inside.sort((a, b) => a.note - b.note || a.start - b.start);
       p.ghost = !inside.length && S.blend && dots.length > 1; p.set = p.ghost ? nearestN(p.pt, 3) : inside;
-      for (const d of inside) { d.sel = 1; if (bi < 80) { ba.setXYZ(bi * 2, p.pt.x, p.pt.y, p.pt.z); ba.setXYZ(bi * 2 + 1, d.lp.x, d.lp.y, d.lp.z); bi++; } }
+      for (const d of inside) d.sel = 1;
+      if (inside.length > 1) for (let q = 0; q < inside.length; q++) { const a = inside[q], b = inside[(q + 1) % inside.length]; if (q === inside.length - 1 && inside.length < 3) break; if (bi < 120) { ba.setXYZ(bi * 2, a.lp.x, a.lp.y, a.lp.z); ba.setXYZ(bi * 2 + 1, b.lp.x, b.lp.y, b.lp.z); bi++; } }
       cl.visible = false; continue;
     }
     let nd = 1e9; for (const d of dots) nd = Math.min(nd, d.tp.distanceTo(p.pt));
     p.ghost = S.blend && dots.length > 1 && nd > GAP;
     p.set = nearestN(p.pt, p.ghost ? 3 : n);
     for (const d of p.set) { d.sel = 1; r = Math.max(r, d.lp.distanceTo(p.pt));
-      if (bi < 80) { ba.setXYZ(bi * 2, p.pt.x, p.pt.y, p.pt.z); ba.setXYZ(bi * 2 + 1, d.lp.x, d.lp.y, d.lp.z); bi++; } }
+      if (bi < 120) { ba.setXYZ(bi * 2, p.pt.x, p.pt.y, p.pt.z); ba.setXYZ(bi * 2 + 1, d.lp.x, d.lp.y, d.lp.z); bi++; } }
     cl.visible = p.set.length > 0 && !p.ghost; cl.position.copy(p.pt); cl.scale.setScalar(r + .014);
   }
   for (const H of tHands) { if (!H.str || !H.str.pt) continue; const pt = H.str.pt;
-    for (const d of H.str.set) { d.sel = 1; if (bi < 80) { ba.setXYZ(bi * 2, pt.x, pt.y, pt.z); ba.setXYZ(bi * 2 + 1, d.lp.x, d.lp.y, d.lp.z); bi++; } } }
+    for (const d of H.str.set) { d.sel = 1; if (bi < 120) { ba.setXYZ(bi * 2, pt.x, pt.y, pt.z); ba.setXYZ(bi * 2 + 1, d.lp.x, d.lp.y, d.lp.z); bi++; } } }
   for (const H of tHands) { const fp = H.fplayer; if (!H.fingersOn) continue;
-    fp.tips.forEach(tp => { const st = fingerStep(tp); if (st && st.d) { st.d.sel = 1; if (bi < 80) { ba.setXYZ(bi * 2, tp.x, tp.y, tp.z); ba.setXYZ(bi * 2 + 1, st.d.lp.x, st.d.lp.y, st.d.lp.z); bi++; } } }); }
+    fp.tips.forEach(tp => { const st = fingerStep(tp); if (st && st.d) { st.d.sel = 1; if (bi < 120) { ba.setXYZ(bi * 2, tp.x, tp.y, tp.z); ba.setXYZ(bi * 2 + 1, st.d.lp.x, st.d.lp.y, st.d.lp.z); bi++; } } }); }
   ba.needsUpdate = true; beams.geometry.setDrawRange(0, bi * 2);
   for (const p of paths) p.player.active = !S.pathMute;
 }
@@ -1734,12 +2023,14 @@ renderer.setAnimationLoop(() => {
     updateGrab();
   }
   runSimJob();
+  netTick(now);
   updateSpheres();
   updateMic();
   updateSets();
   tick();
   processFlashes();
   updateDots(dt);
+  updateTrails(dt);
   fadeGhosts(dt);
   // latches + path beads + hand rings
   for (const h of hands) {
@@ -1749,9 +2040,10 @@ renderer.setAnimationLoop(() => {
     if (h.model) { h.model.bB.material.color.copy(rec && h.side === 'right' ? REC_RED : DARKB); h.model.trig.material.color.copy(h.playing || h.draw ? ORANGE : DARKB); }
   }
   for (const p of paths) {
-    if (S.pathTiming === 'drawn' && p.T && p.tmap && p.player.loopT && ctx) {
-      const per = (S.pathDir === 'bounce' ? 2 : 1) * p.T + .06; let el = ((ctx.currentTime - p.player.loopT) % per + per) % per; if (el > p.T) el = Math.max(0, 2 * p.T - el);
-      const f = el / p.T; let lo = 0, hi = 160; while (lo < hi) { const m = (lo + hi) >> 1; if (p.tmap[m] < f) lo = m + 1; else hi = m; } p.player.bead = lo; }
+    if ((S.pathTiming === 'drawn' || S.pathTiming === 'grid') && p.T && p.tmap && p.player.loopT && ctx) {
+      const grid = S.pathTiming === 'grid', per = grid ? gridLoop(p) : (S.pathDir === 'bounce' ? 2 : 1) * p.T + .06, bnc = S.pathDir === 'bounce';
+      let el = ((ctx.currentTime - p.player.loopT) % per + per) % per;
+      let f = grid ? el / per * (bnc ? 2 : 1) : el / p.T; if (f > 1) f = Math.max(0, 2 - f); let lo = 0, hi = 160; while (lo < hi) { const m = (lo + hi) >> 1; if (p.tmap[m] < f) lo = m + 1; else hi = m; } p.player.bead = lo; }
     const tgt = p.samples[p.player.bead] || p.samples[0]; if (tgt) { p.beadPos.lerp(tgt, 1 - Math.exp(-dt * 18)); p.bead.position.copy(p.beadPos); }
     p.bead.visible = !S.pathMute && p.seq.length > 0;
     p.handles.forEach(hm => { let dmin = 9; const w = cloud.localToWorld(hm.position.clone());
@@ -1792,7 +2084,7 @@ const off = (el, t) => { el.textContent = t; el.disabled = true; el.style.opacit
   else if (!ar && !vr) { off(vrBtn, 'No headset here'); $('#vrOnly').style.display = 'none'; }
   else if (!vr) $('#vrOnly').style.display = 'none';
 })();
-window.__sx = {mic, camera, onSet, spheres, undo, bringHere, updateTHand: H => updateTHand(H), updateFT: () => updateFingersTogether(), fAll, tHands, panelMesh, updateFloatingMenu: () => updateFloatingMenu(), get panelFloating() { return panelFloating; }, setPF: v => { panelFloating = v; }, setSample, blendOf, playBlend, tick, flashes, S, dots: () => dots, paths, hands, desk, cloud, newPath, finishStroke, computeSeq, demoVoice, drawPanel, pDown, players: allPlayers, get ctx() { return ctx; }, get voiceBus() { return voiceBus; }};
+window.__sx = {NET, CAL, netMsg, calStart, calPoint, remote, tapTempo, setPaused, get paused() { return paused; }, trails, mic, camera, onSet, spheres, undo, bringHere, updateTHand: H => updateTHand(H), updateFT: () => updateFingersTogether(), fAll, tHands, panelMesh, updateFloatingMenu: () => updateFloatingMenu(), get panelFloating() { return panelFloating; }, setPF: v => { panelFloating = v; }, setSample, blendOf, playBlend, tick, flashes, S, dots: () => dots, paths, hands, desk, cloud, newPath, finishStroke, computeSeq, demoVoice, drawPanel, pDown, players: allPlayers, get ctx() { return ctx; }, get voiceBus() { return voiceBus; }};
 (async () => {
   try { await Promise.all([document.fonts.load(`34px Bungee`), document.fonts.load(`500 24px "Space Grotesk"`), document.fonts.load(`600 24px "Space Grotesk"`)]); } catch (e) {}
   hands.forEach(writeHints); panelDirty = true;
